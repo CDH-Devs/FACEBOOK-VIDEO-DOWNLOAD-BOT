@@ -157,19 +157,23 @@ export default {
         setupBotHandlers(bot);
     }
     
-    // Telegram වෙතින් එන POST request එක හසුරුවයි
-    if (request.method === 'POST') {
-        try {
-            const body = await request.json();
-            await bot.handleUpdate(body);
-            return new Response('OK', { status: 200 });
 
-        } catch (error) {
-            console.error('Webhook Handling Error:', error.message);
-            return new Response('Error handling update', { status: 500 });
-        }
+
+if (request.method === 'POST') {
+    try {
+        let body;
+        try {
+            body = await request.json(); 
+        } catch (e) {
+            console.error('JSON Parsing Error (Ignoring request):', e.message);
+            return new Response('OK - JSON Error Handled', { status: 200 }); // 200 OK ලෙස යවමු
+        }
+        
+        await bot.handleUpdate(body);
+        return new Response('OK', { status: 200 });
+
+    } catch (error) {
+        console.error('Webhook Handling Error:', error.message);
+        return new Response('Error handling update', { status: 500 });
     }
-
-    return new Response('Fdown Telegram Bot Worker is running.', { status: 200 });
-  },
-};
+}
