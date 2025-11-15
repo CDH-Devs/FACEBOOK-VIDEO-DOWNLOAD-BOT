@@ -1,15 +1,19 @@
 {
-  "name": "fdown-telegram-bot",
-  "version": "1.0.0",
-  "description": "Telegram Bot to download videos using fdown.net",
-  "main": "index.js",
+  "name": "facebookdownbot",
+  "version": "2.0.0",
+  "description": "Telegram Facebook Video Downloader Bot - Cloudflare Workers Edition",
+  "main": "src/worker.js",
+  "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node bot.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
   },
   "dependencies": {
-    "axios": "^1.6.8",
-    "cheerio": "^1.0.0-rc.12",
-    "dotenv": "^16.4.5",
-    "telegraf": "^4.16.1"
+    "grammy": "^1.38.3"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
   }
 }
