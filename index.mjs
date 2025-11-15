@@ -1,10 +1,9 @@
 import { Telegraf } from 'telegraf';
 import axios from 'axios';
 import * as cheerio from 'cheerio'; 
-// Cloudflare Workers වලදී, Node.js Built-in modules සඳහා nodejs_compat flag එක අවශ්‍යයි.
 
 // ⚠️ Bot Token එක
-// සටහන: ඔබේ Token එකේ 401 Error එකක් තිබිය හැක. නිවැරදි Token එක මෙහි ඇතුළත් කරන්න.
+// ඔබගේ 401 Unauthorized Error එක විසඳීමට කරුණාකර නිවැරදි Token එක මෙහි ඇතුළත් කරන්න.
 const BOT_TOKEN = '8382727460:AAEgKVISJN5TTuV4O-82sMGQDG3khwjiKR8'; 
 
 let bot;
@@ -12,6 +11,7 @@ let bot;
 // --- 1. Scraping Logic: fdown.net වෙතින් Direct File Link එක සොයා ගැනීම ---
 
 async function getFileLink(url) {
+    // fdown.net වෙතින් download.php පිටුවට යමු
     const scrapeUrl = `https://fdown.net/download.php?url=${encodeURIComponent(url)}`;
     
     try {
@@ -61,7 +61,7 @@ async function downloadVideoBuffer(downloadUrl) {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
             },
-            // විශාල වීඩියෝ සඳහා timeout එක වැඩි කරන්න (මි. තත්පර 60,000 = තත්පර 60)
+            // විශාල වීඩියෝ සඳහා timeout එක වැඩි කරන්න
             timeout: 60000 
         });
         
@@ -94,12 +94,11 @@ function setupBotHandlers(botInstance) {
             try {
                 loadingMsg = await ctx.reply('⌛️ වීඩියෝ ලින්ක් එක සකසමින්...', { reply_to_message_id: messageId });
                 
-                // 1. Download File Link එක සොයන්න
                 const fileLink = await getFileLink(url); 
                 let videoBuffer = null;
 
                 if (fileLink) {
-                    // 2. Link එකෙන් වීඩියෝව Buffer එකක් ලෙස Download කරන්න
+                    // Link එකෙන් වීඩියෝව Buffer එකක් ලෙස Download කරන්න
                     await ctx.editMessageText('📥 වීඩියෝව බාගත කරමින්... (මෙයට විනාඩියක් පමණ ගත විය හැකිය)', { 
                         chat_id: loadingMsg.chat.id,
                         message_id: loadingMsg.message_id 
@@ -111,7 +110,7 @@ function setupBotHandlers(botInstance) {
                 if (videoBuffer) {
                     await ctx.deleteMessage(loadingMsg.message_id).catch(e => console.log("Can't delete msg:", e.message));
 
-                    // 3. Buffer එක කෙලින්ම Telegram වෙත Upload කරන්න (Bad Request මඟහැරීමට)
+                    // Buffer එක කෙලින්ම Telegram වෙත Upload කරන්න (URL Expire වීම මඟහැරීමට)
                     await ctx.replyWithVideo({ source: videoBuffer, filename: 'facebook_video.mp4' }, { 
                         caption: `ඔබ ඉල්ලූ වීඩියෝව මෙන්න.`,
                         reply_to_message_id: messageId 
@@ -147,7 +146,8 @@ function setupBotHandlers(botInstance) {
     });
 }
 
-// Cloudflare Worker's entry point: ES Module default export
+// --- 4. Cloudflare Worker Entry Point ---
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -157,23 +157,28 @@ export default {
         setupBotHandlers(bot);
     }
     
+    // Telegram වෙතින් එන POST request එක හසුරුවයි
+    if (request.method === 'POST') {
+        try {
+            let body;
+            try {
+                // 🛑 JSON Parsing Error (Unexpected end of JSON input) මෙතැනින් හසුරුවයි
+                body = await request.json(); 
+            } catch (e) {
+                console.error('JSON Parsing Error (Ignoring request):', e.message);
+                // JSON parsing දෝෂයක් ඇති Request එකක් නම්, එය මඟහැර 200 OK යවන්න
+                return new Response('OK - JSON Error Handled', { status: 200 }); 
+            }
 
+            await bot.handleUpdate(body);
+            return new Response('OK', { status: 200 });
 
-if (request.method === 'POST') {
-    try {
-        let body;
-        try {
-            body = await request.json(); 
-        } catch (e) {
-            console.error('JSON Parsing Error (Ignoring request):', e.message);
-            return new Response('OK - JSON Error Handled', { status: 200 }); // 200 OK ලෙස යවමු
-        }
-        
-        await bot.handleUpdate(body);
-        return new Response('OK', { status: 200 });
-
-    } catch (error) {
-        console.error('Webhook Handling Error:', error.message);
-        return new Response('Error handling update', { status: 500 });
+        } catch (error) {
+            console.error('Webhook Handling Error:', error.message);
+            return new Response('Error handling update', { status: 500 });
+        }
     }
-}
+
+    return new Response('Fdown Telegram Bot Worker is running.', { status: 200 });
+  },
+};
