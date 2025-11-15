@@ -1,92 +1,66 @@
 import { Telegraf } from 'telegraf';
 import axios from 'axios';
 import * as cheerio from 'cheerio'; 
-import { URLSearchParams } from 'url'; // Node.js URLSearchParams Cloudflare workers වලදී අවශ්‍යයි
+// URLSearchParams දැන් Cloudflare Worker environment එකෙන් auto-inject විය යුතුයි, 
+// එසේ නොවුණොත්, 'url' import එක අවශ්‍යයි: import { URLSearchParams } from 'url';
 
-// ⚠️ ඔබේ Bot Token එක මෙතනටම ඇතුළත් කරන්න.
-const BOT_TOKEN = '8382727460:AAEgKVISJN5TTuV4O-82sMGQDG3khwjiKR8'; 
-
-if (BOT_TOKEN === 'ඔබේ_BotFather_Token_එක_මෙතනට_දාන්න' || !BOT_TOKEN) {
-    console.error("⛔️ Error: Please replace the placeholder with your actual BotFather Token.");
-}
+// ⚠️ Bot Token එක
+const BOT_TOKEN = '83827277460:AAEgKVISJN5TTuV4O-82sMGQDG3khwjiKR8'; 
 
 let bot;
 
-// 🎯 යාවත්කාලීන කරන ලද: පියවර දෙකක (Two-Step) Scraping Function එක
+// 🎯 අවසාන යාවත්කාලීන කරන ලද Scraping Logic
 async function getDownloadLink(url) {
+    // fdown.net bot traffic block කරන නිසා, අපි සෘජුවම download.php URL එකට යමු.
+    const scrapeUrl = `https://fdown.net/download.php?url=${encodeURIComponent(url)}`;
     
-    // 🎯 පියවර 1: index.php වෙතට POST request එක යැවීම
-    const indexUrl = 'https://fdown.net/index.php';
-    
-    // Facebook Video URL එක data payload එක ලෙස යවමු (form data)
-    const dataPayload = new URLSearchParams();
-    dataPayload.append('url', url); 
-    
-    // Bot හඳුනා ගැනීම වැළැක්වීමට Headers
-    const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': 'https://fdown.net/', // Referer header එක අනිවාර්යයි
-        'Content-Type': 'application/x-www-form-urlencoded', // POST request සඳහා අනිවාර්යයි
-    };
-
     try {
-        // POST request එක යැවීම. Redirects නවත්වමු (maxRedirects: 0)
-        await axios.post(indexUrl, dataPayload.toString(), { 
-            headers,
-            maxRedirects: 0, 
-            // 302/301 status code එකකදී error එකක් throw කරන්නැතිව response එකක් ලෙස පිළිගැනීමට
-            validateStatus: status => status >= 200 && status < 303 
+        const response = await axios.get(scrapeUrl, {
+            headers: {
+                // වඩාත් නිවැරදි User-Agent එකක්
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                // Referer Header එක අනිවාර්යයෙන්ම අවශ්‍යයි!
+                'Referer': 'https://fdown.net/',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            // fdown.net redirect වුවහොත් එය අනුගමනය කරන්න
+            maxRedirects: 5 
         });
         
-        // ⚠️ සටහන: අපි මෙහිදී axios redirect එක block කළ නිසා,
-        // සාර්ථක POST එකකින් පසු axios විසින් 302 error එකක් throw කරනු ඇත.
-        // එම error එකේ response.headers.location හි redirect URL එක අඩංගු වේ.
-        return null; // මෙම කොටසට code එක පැමිණියහොත් දෝෂයකි
+        const $ = cheerio.load(response.data);
 
-    } catch (error) {
-        // 302/301 redirect status එකක් (Redirect වීමට සූදානම්) ලැබුණු විට මෙහිදී අසු කරගනී.
-        if (error.response && (error.response.status === 302 || error.response.status === 301)) {
-            
-            const redirectUrl = error.response.headers.location;
-            
-            if (redirectUrl && redirectUrl.includes('download.php')) {
-                // 🎯 පියවර 2: Redirect වූ download.php පිටුව scraping කිරීම
-                
-                // සම්පූර්ණ Download URL එක නිර්මාණය කරමු
-                const fullDownloadUrl = redirectUrl.startsWith('http') ? redirectUrl : 'https://fdown.net' + redirectUrl;
+        // 🎯 නවතම Web Scraping Logic (පිටුවේ ඇති පාඨය මත පදනම්ව)
+        let linkElement;
 
-                const downloadPageResponse = await axios.get(fullDownloadUrl, { headers });
-
-                const $ = cheerio.load(downloadPageResponse.data);
-
-                // 🎯 යාවත්කාලීන කරන ලද Web Scraping Logic (නව පාඨය අනුව)
-                const hdLinkElement = $('a:contains("Download Video in HD Quality")'); 
-                
-                if (hdLinkElement.length > 0) {
-                    return hdLinkElement.attr('href');
-                } else {
-                    const sdLinkElement = $('a:contains("Download Video in Normal Quality")');
-                    if (sdLinkElement.length > 0) {
-                        return sdLinkElement.attr('href');
-                    }
-                }
-                
-                return null; // Download Link සොයා ගැනීමට නොහැකි විය
-
-            } else {
-                 console.error("Fdown Scraping Error: Redirected to a non-download page:", redirectUrl);
-                 return null;
-            }
+        // 1. HD Link එක සොයා ගැනීම (පාඨය: "Download Video in HD Quality")
+        linkElement = $('a:contains("Download Video in HD Quality")'); 
+        
+        if (linkElement.length === 0) {
+             // 2. SD Link එක සොයා ගැනීම (පාඨය: "Download Video in Normal Quality")
+            linkElement = $('a:contains("Download Video in Normal Quality")');
         }
         
-        // වෙනත් දෝෂයක් (Network, Server error, etc.)
-        console.error("Fdown Scraping Error (Axios):", error.message);
-        return null;
+        // 3. පැරණි Selector එකක් පරීක්ෂා කරමු (Fallback)
+        if (linkElement.length === 0) {
+            // බොත්තම් වලට btn ක්ලාස් එකක් තිබේ නම්, href එකක් සහිත පළමු A-tag එක සොයන්න
+            linkElement = $('a.btn[href^="http"]'); 
+        }
+
+        if (linkElement.length > 0) {
+            // පළමු වලංගු link එකේ href එක ලබා දෙමු
+            return linkElement.first().attr('href');
+        }
+
+        return null; 
+        
+    } catch (error) {
+        // දෝෂයක් Cloudflare Logs වෙත යවමු
+        console.error("Fdown Scraping Error:", error.message);
+        return null; 
     }
 }
 
-
-// Telegram Handlers define කරන function එක (වෙනස් කර නැත)
+// Telegram Handlers define කරන function එක
 function setupBotHandlers(botInstance) {
     botInstance.start((ctx) => {
         ctx.reply(`👋 හායි ${ctx.from.first_name}!\nමම fdown.net හරහා Facebook වීඩියෝ බාගත කරන Bot කෙනෙක්. කරුණාකර Facebook වීඩියෝ ලින්ක් එකක් (URL) මට එවන්න.`);
@@ -144,7 +118,7 @@ function setupBotHandlers(botInstance) {
     });
 }
 
-// Cloudflare Worker's entry point: ES Module default export (වෙනස් කර නැත)
+// Cloudflare Worker's entry point: ES Module default export
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
