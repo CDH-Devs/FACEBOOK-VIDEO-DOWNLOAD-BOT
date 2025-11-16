@@ -4,16 +4,13 @@ import 'dotenv/config';
 
 // Read environment variables from .dev.vars (manually loaded)
 const BOT_TOKEN = process.env.BOT_TOKEN || '8382727460:AAEgKVISJN5TTuV4O-82sMGQDG3khwjiKR8';
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || 'd110357f31msh2e0d5216204b77dp10675bjsn98cfa8c30266';
 
 const env = {
-  BOT_TOKEN,
-  RAPIDAPI_KEY
+  BOT_TOKEN
 };
 
 console.log('🤖 Starting Telegram bot in polling mode...');
 console.log('📡 Bot Token:', BOT_TOKEN.substring(0, 10) + '...');
-console.log('🔑 RapidAPI Key:', RAPIDAPI_KEY ? 'Set ✓' : 'Not set ✗');
 
 // Create bot instance
 const bot = new Bot(BOT_TOKEN);
