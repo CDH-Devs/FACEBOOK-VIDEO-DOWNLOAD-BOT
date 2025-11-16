@@ -1,180 +1,94 @@
-/**
- * Facebook Video Downloader Service using Apify Actor
- */
+import youtubedl from 'youtube-dl-exec';
+import { promisify } from 'util';
+import { exec } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
-const APIFY_ACTOR_ID = 'qq0smwvcggvvHjvuy';
+const execAsync = promisify(exec);
 
-/**
- * Main function to get Facebook video information using Apify
- */
-export async function getFbVideoInfo(videoUrl, env) {
+export async function getFbVideoInfo(videoUrl) {
   console.log(`Fetching video info for: ${videoUrl}`);
   
-  if (!env?.APIFY_API_TOKEN) {
-    console.error('APIFY_API_TOKEN not found in environment');
-    return { 
-      error: 'Service configuration error. Please contact the bot administrator.' 
-    };
-  }
-  
   try {
-    // Run the Apify actor
-    const runResult = await runApifyActor(videoUrl, env.APIFY_API_TOKEN);
-    
-    if (!runResult.success) {
-      console.error('Apify actor run failed:', runResult.error);
-      return { 
-        error: 'Unable to fetch video. The video might be private, deleted, or temporarily unavailable.' 
-      };
-    }
-    
-    // Get the dataset results
-    const videoData = await getApifyDataset(runResult.datasetId, env.APIFY_API_TOKEN);
-    
-    if (!videoData) {
-      return { 
-        error: 'No video data found. The video might be private or unavailable.' 
-      };
-    }
-    
-    return videoData;
-  } catch (error) {
-    console.error('Facebook video fetch error:', error.message);
-    return { 
-      error: `Failed to fetch video: ${error.message}` 
-    };
-  }
-}
-
-/**
- * Run the Apify actor with the Facebook video URL
- */
-async function runApifyActor(videoUrl, apiToken) {
-  try {
-    const runUrl = `https://api.apify.com/v2/acts/${APIFY_ACTOR_ID}/runs?token=${apiToken}`;
-    
-    const response = await fetch(runUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: videoUrl
-      })
+    const info = await youtubedl(videoUrl, {
+      dumpSingleJson: true,
+      noCheckCertificates: true,
+      noWarnings: true,
+      preferFreeFormats: true,
+      addHeader: [
+        'referer:youtube.com',
+        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      ]
     });
-    
-    if (!response.ok) {
-      throw new Error(`Apify API returned ${response.status}: ${response.statusText}`);
+
+    if (!info) {
+      return {
+        error: 'Unable to fetch video information'
+      };
     }
-    
-    const data = await response.json();
-    const runId = data.data.id;
-    const datasetId = data.data.defaultDatasetId;
-    
-    console.log(`Apify actor started. Run ID: ${runId}`);
-    
-    // Wait for the actor to finish
-    const finished = await waitForActorCompletion(runId, apiToken, 30000);
-    
-    if (!finished) {
-      throw new Error('Actor execution timeout');
+
+    const tempDir = '/tmp/fb-videos';
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
     }
-    
+
+    const outputTemplate = path.join(tempDir, `${Date.now()}.%(ext)s`);
+
+    const downloadResult = await youtubedl(videoUrl, {
+      output: outputTemplate,
+      format: 'best',
+      noCheckCertificates: true,
+      noWarnings: true,
+      addHeader: [
+        'referer:youtube.com',
+        'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      ]
+    });
+
+    const videoExtensions = ['.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv', '.m4v'];
+    const videoFiles = fs.readdirSync(tempDir).filter(f => {
+      const stats = fs.statSync(path.join(tempDir, f));
+      const ext = path.extname(f).toLowerCase();
+      return stats.mtimeMs > Date.now() - 10000 && videoExtensions.includes(ext);
+    });
+
+    let videoPath = null;
+    if (videoFiles.length > 0) {
+      videoPath = path.join(tempDir, videoFiles[0]);
+    }
+
+    setTimeout(() => {
+      if (videoPath && fs.existsSync(videoPath)) {
+        fs.unlinkSync(videoPath);
+        console.log(`Cleaned up temporary file: ${videoPath}`);
+      }
+    }, 60000);
+
     return {
-      success: true,
-      runId,
-      datasetId
+      url: info.url || info.webpage_url,
+      videoPath: videoPath,
+      title: info.title || 'Facebook Video',
+      thumbnail: info.thumbnail || '',
+      duration: info.duration || 0,
+      author: info.uploader || info.channel || ''
     };
   } catch (error) {
-    console.error('Error running Apify actor:', error.message);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-}
-
-/**
- * Wait for Apify actor to complete execution
- */
-async function waitForActorCompletion(runId, apiToken, timeout = 30000) {
-  const startTime = Date.now();
-  const checkInterval = 1000; // Check every 1 second
-  
-  while (Date.now() - startTime < timeout) {
-    try {
-      const statusUrl = `https://api.apify.com/v2/actor-runs/${runId}?token=${apiToken}`;
-      const response = await fetch(statusUrl);
-      
-      if (!response.ok) {
-        throw new Error(`Status check failed: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      const status = data.data.status;
-      
-      console.log(`Actor status: ${status}`);
-      
-      if (status === 'SUCCEEDED') {
-        return true;
-      }
-      
-      if (status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
-        throw new Error(`Actor execution ${status}`);
-      }
-      
-      // Wait before next check
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
-    } catch (error) {
-      console.error('Error checking actor status:', error.message);
-      throw error;
-    }
-  }
-  
-  return false; // Timeout
-}
-
-/**
- * Get video data from Apify dataset
- */
-async function getApifyDataset(datasetId, apiToken) {
-  try {
-    const datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apiToken}`;
+    console.error('yt-dlp error:', error.message);
     
-    const response = await fetch(datasetUrl);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch dataset: ${response.status}`);
+    if (error.message.includes('private') || error.message.includes('This video is only available')) {
+      return {
+        error: 'This video is private or not available'
+      };
     }
     
-    const items = await response.json();
-    
-    if (!items || items.length === 0) {
-      return null;
+    if (error.message.includes('Video unavailable')) {
+      return {
+        error: 'Video is unavailable or has been removed'
+      };
     }
-    
-    const item = items[0];
-    const result = item.result || item;
-    
-    if (!result || result.error) {
-      return null;
-    }
-    
-    // Extract video URLs from the medias array
-    const hdVideo = result.medias?.find(m => m.quality === 'HD');
-    const sdVideo = result.medias?.find(m => m.quality === 'SD');
     
     return {
-      url: result.url,
-      hd: hdVideo?.url || null,
-      sd: sdVideo?.url || hdVideo?.url || null,
-      title: result.title || 'Facebook Video',
-      thumbnail: result.thumbnail || '',
-      duration: result.duration || 0,
-      author: result.author || ''
+      error: `Failed to fetch video: ${error.message}`
     };
-  } catch (error) {
-    console.error('Error fetching Apify dataset:', error.message);
-    return null;
   }
 }
