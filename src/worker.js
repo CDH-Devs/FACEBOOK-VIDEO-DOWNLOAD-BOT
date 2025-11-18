@@ -1,26 +1,21 @@
 /**
  * src/index.js
- * Final Fix V10: No Caption Mode (Video Only) + Cleaned Error Messages.
+ * Final Fix V15: Combining ThumbDownloader (Thumbnail) and Fdown.net (Video)
  */
 
-// ** 1. MarkdownV2 හි සියලුම විශේෂ අක්ෂර Escape කිරීමේ Helper Function **
-// මෙය සියලුම Static Messages සඳහා භාවිතා වේ.
 function escapeMarkdownV2(text) {
     if (!text) return "";
     return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\\\])/g, '\\$1');
 }
 
-// ** 2. Scraped Title/Stats සඳහා Cleaner Function **
-// Title/Stats scraping සඳහා තවදුරටත් අවශ්‍ය නැත, නමුත් scrape වූ text error messages සඳහා sanitize කිරීමට තබා ගනිමු.
 function sanitizeText(text) {
     if (!text) return "";
     let cleaned = text.replace(/<[^>]*>/g, '').trim(); 
     cleaned = cleaned.replace(/\s\s+/g, ' '); 
     cleaned = cleaned.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'); 
-    cleaned = cleaned.replace(/([_*\[\]()~`>#+\-=|{}.!\\\\])/g, '\\$1'); 
+    cleaned = cleaned.replace(/([_\[\]()~`>#+\-=|{}.!\\\\])/g, '\\$1'); 
     return cleaned;
 }
-
 
 export default {
     async fetch(request, env, ctx) {
@@ -41,20 +36,69 @@ export default {
                 const messageId = message.message_id;
                 
                 if (text === '/start') {
-                    await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('👋 සුභ දවසක්! මට Facebook වීඩියෝ Link එකක් එවන්න. එවිට මම එය download කර දෙන්නම්.'), messageId);
+                    await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('👋 සුභ දවසක්! මට Facebook වීඩියෝ Link එකක් එවන්න\\. එවිට මම එය download කර දෙන්නම්\\.'), messageId);
                     return new Response('OK', { status: 200 });
                 }
 
                 const isLink = /^https?:\/\/(www\.)?(facebook\.com|fb\.watch|fb\.me)/i.test(text);
                 
                 if (isLink) {
-                    await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('⌛️ වීඩියෝව හඳුනා ගැනේ... කරුණාකර මොහොතක් රැඳී සිටින්න.'), messageId);
+                    // Two-Step process Message
+                    await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('⌛️ Thumbnail (ThumbDownloader) සහ Video (FDown\\.net) Links සොයා ගැනේ... කරුණාකර මොහොතක් රැඳී සිටින්න\\.'), messageId);
                     
+                    let videoUrl = null;
+                    let thumbnailLink = null;
+                    let videoTitle = "මාතෘකාවක් නොමැත";
+                    let videoStats = "";
+                    let quality = "Normal";
+
+                    // --- 1. ThumbDownloader Scraping for Thumbnail ---
+                    try {
+                        const encodedLink = encodeURIComponent(text);
+                        const thumbdownloaderUrl = `https://www.thumbdownloader.com/facebook-thumbnail?u=${encodedLink}`;
+
+                        const thumbResponse = await fetch(thumbdownloaderUrl, {
+                            method: 'GET',
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                                'Referer': 'https://www.thumbdownloader.com/', 
+                            },
+                        });
+
+                        const thumbResultHtml = await thumbResponse.text();
+                        
+                        // Scrape Thumbnail Link (Searching for the download button link or an image tag)
+                        const downloadLinkRegex = /<a[^>]+href=["']?([^"'\s]+)["']?[^>]*>\s*<button[^>]*>Download Image<\/button>/i;
+                        let downloadMatch = thumbResultHtml.match(downloadLinkRegex);
+
+                        if (downloadMatch && downloadMatch[1]) {
+                            thumbnailLink = downloadMatch[1];
+                        } else {
+                            // Fallback: search for a high-res image link
+                            const imageTagRegex = /<img[^>]+src=["']?([^"'\s]+)["']?[^>]*alt=["']?Download Facebook Thumbnail/i;
+                            let imageMatch = thumbResultHtml.match(imageTagRegex);
+
+                            if (imageMatch && imageMatch[1]) {
+                                thumbnailLink = imageMatch[1];
+                            }
+                        }
+
+                        if (thumbnailLink) {
+                            thumbnailLink = thumbnailLink.replace(/&amp;/g, '&');
+                        }
+
+                    } catch (thumbError) {
+                        console.error("Thumbnail scraping failed, proceeding with video download:", thumbError);
+                    }
+
+
+                    // --- 2. Fdown.net Scraping for Video Link and Metadata ---
                     try {
                         const fdownUrl = "https://fdown.net/download.php";
                         
                         const formData = new URLSearchParams();
-                        formData.append('URLz', text); 
+                        formData.append('url', text); 
+                        formData.append('submit', 'Download'); 
 
                         const fdownResponse = await fetch(fdownUrl, {
                             method: 'POST',
@@ -67,64 +111,94 @@ export default {
                             redirect: 'follow' 
                         });
 
-                        const resultHtml = await fdownResponse.text();
+                        const fdownResultHtml = await fdownResponse.text();
                         
-                        let videoUrl = null;
-                        let thumbnailLink = null;
-                        
-                        // Thumbnail Link සොයා ගැනීම
-                        const thumbnailRegex = /<img[^>]+class=["']?fb_img["']?[^>]*src=["']?([^"'\s]+)["']?/i;
-                        let thumbnailMatch = resultHtml.match(thumbnailRegex);
-                        if (thumbnailMatch && thumbnailMatch[1]) {
-                            thumbnailLink = thumbnailMatch[1];
-                        }
+                        // HD Link සොයා ගැනීම
+                        const hdLinkRegex = /<a href="([^"]+)" target="_blank" class="[^"]*btn-download[^"]*"[^>]*>\s*HD Video\s*<\/a>/i;
+                        let hdMatch = fdownResultHtml.match(hdLinkRegex);
 
-                        // Link Scraping
-                        const hdLinkRegex = /<a[^>]+href=["']?([^"'\s]+)["']?[^>]*>.*Download Video in HD Quality.*<\/a>/i;
-                        let match = resultHtml.match(hdLinkRegex);
-
-                        if (match && match[1]) {
-                            videoUrl = match[1]; 
+                        if (hdMatch && hdMatch[1]) {
+                            videoUrl = hdMatch[1];
+                            quality = "HD"; 
                         } else {
-                            const normalLinkRegex = /<a[^>]+href=["']?([^"'\s]+)["']?[^>]*>.*Download Video in Normal Quality.*<\/a>/i;
-                            match = resultHtml.match(normalLinkRegex);
+                            // SD Link සොයා ගැනීම
+                            const sdLinkRegex = /<a href="([^"]+)" target="_blank" class="[^"]*btn-download[^"]*"[^>]*>\s*SD Video\s*<\/a>/i;
+                            let sdMatch = fdownResultHtml.match(sdLinkRegex);
 
-                            if (match && match[1]) {
-                                videoUrl = match[1]; 
+                            if (sdMatch && sdMatch[1]) {
+                                videoUrl = sdMatch[1];
+                                quality = "SD";
                             }
                         }
 
-                        if (videoUrl) {
-                            let cleanedUrl = videoUrl.replace(/&amp;/g, '&');
-                            
-                            // ** V10 FIX: Caption එකක් අවශ්‍ය නැත. **
-                            // finalCaption variable එකක් මෙහිදී නිර්මාණය නොකෙරේ.
+                        // Title Scraping
+                        const videoTitleRegex = /<p[^>]*class=["']?card-text[^"']*["']?>\s*<strong[^>]*>Title:\s*<\/strong>\s*([\s\S]*?)<\/p>/i;
+                        let titleMatch = fdownResultHtml.match(videoTitleRegex);
+                        
+                        if (titleMatch && titleMatch[1]) {
+                            let scrapedTitle = sanitizeText(titleMatch[1]);
+                            if (scrapedTitle.length > 900) { 
+                                scrapedTitle = scrapedTitle.substring(0, 897) + "\\.\\.\\."; 
+                            }
+                            videoTitle = scrapedTitle;
+                        }
 
-                            await this.sendVideo(telegramApi, chatId, cleanedUrl, null, messageId, thumbnailLink); // Caption එක null ලෙස යවයි
-                            
+                        // Stats Scraping (Description)
+                        const videoStatsRegex = /<p[^>]*class=["']?card-text[^"']*["']?>\s*<strong[^>]*>Description:\s*<\/strong>\s*([\s\S]*?)<\/p>/i;
+                        let statsMatch = fdownResultHtml.match(videoStatsRegex);
+
+                        if (statsMatch && statsMatch[1]) {
+                            videoStats = sanitizeText(statsMatch[1]);
+                            videoStats = videoStats.length > 0 ? `Description: ${videoStats}` : `Description: නොමැත`;
                         } else {
-                            await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('⚠️ සමාවෙන්න, වීඩියෝ Download Link එක සොයා ගැනීමට නොහැකි විය. වීඩියෝව Private (පුද්ගලික) විය හැක.'), messageId);
+                            videoStats = `විස්තර තොරතුරු නොමැත\\.`;
                         }
                         
+                        if (videoUrl) {
+                            videoUrl = videoUrl.replace(/&amp;/g, '&');
+                        }
+
                     } catch (fdownError) {
-                        await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('❌ වීඩියෝ තොරතුරු ලබා ගැනීමේදී දෝෂයක් ඇති විය.'), messageId);
+                        console.error("Fdown scraping failed:", fdownError);
+                        // videoUrl remains null
+                    }
+
+
+                    // --- 3. Final Caption and Sending ---
+                    
+                    let finalCaption = `**${videoTitle}**\n\nQuality: ${quality}\n${videoStats}\n\n[🔗 Original Link](${text})`;
+                    
+                    if (finalCaption.length > 1024) {
+                        finalCaption = finalCaption.substring(0, 1000) + '\\.\\.\\. \\(Caption Truncated\\)'; 
+                    }
+
+                    if (videoUrl) {
+                        // Send the video with the scraped thumbnail
+                        await this.sendVideo(telegramApi, chatId, videoUrl, finalCaption, messageId, thumbnailLink);
+                        
+                    } else {
+                        // Send error message (Fdown failed)
+                        let errorCaption = `❌ සමාවෙන්න, Download Link එක (HD/SD) fdown\\.net වෙතින් සොයා ගැනීමට නොහැකි විය\\. වීඩියෝව Private විය හැක\\.`;
+                        if (thumbnailLink) {
+                            errorCaption += `\n\nThumbnail Link එක සොයා ගන්නා ලදී, නමුත් වීඩියෝවක් යැවීමට නොහැක\\.`;
+                        }
+                        errorCaption += ` (Link: ${escapeMarkdownV2(text)})`;
+                        
+                        await this.sendMessage(telegramApi, chatId, errorCaption, messageId);
                     }
                     
                 } else {
-                    await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('❌ කරුණාකර වලංගු Facebook වීඩියෝ Link එකක් එවන්න.'), messageId);
+                    await this.sendMessage(telegramApi, chatId, escapeMarkdownV2('❌ කරුණාකර වලංගු Facebook වීඩියෝ Link එකක් එවන්න\\.'), messageId);
                 }
             }
 
             return new Response('OK', { status: 200 });
 
         } catch (e) {
+            console.error("General error:", e);
             return new Response('OK', { status: 200 }); 
         }
     },
-
-    // ------------------------------------
-    // සහායක Functions
-    // ------------------------------------
 
     async sendMessage(api, chatId, text, replyToMessageId) {
         try {
@@ -139,17 +213,23 @@ export default {
                 }),
             });
         } catch (e) {
-            // Error handling
+            console.error("Error sending message:", e);
         }
     },
 
-    // ** V10 FIX: Caption එකක් නොමැතිව sendVideo **
     async sendVideo(api, chatId, videoUrl, caption = null, replyToMessageId, thumbnailLink = null) {
         
         const videoResponse = await fetch(videoUrl);
         
         if (videoResponse.status !== 200) {
-            await this.sendMessage(api, chatId, escapeMarkdownV2(`⚠️ වීඩියෝව කෙලින්ම Upload කිරීමට අසාර්ථකයි. CDN වෙත පිවිසීමට නොහැක.`), replyToMessageId);
+            
+            let messageText = `⚠️ වීඩියෝව කෙලින්ම Upload කිරීමට අසාර්ථකයි\\. CDN වෙත පිවිසීමට නොහැක\\.`;
+
+            if (caption) {
+                 messageText = `❌ වීඩියෝව Download කිරීමට අසාර්ථකයි! වීඩියෝ Link එක බිඳී ඇත\\. තොරතුරු: ${caption.replace(/\*\*/g, '').replace(/\[.*\]/g, '').trim()}`;
+            }
+
+            await this.sendMessage(api, chatId, escapeMarkdownV2(messageText), replyToMessageId);
             return;
         }
         
@@ -158,7 +238,6 @@ export default {
         const formData = new FormData();
         formData.append('chat_id', chatId);
         
-        // ** V10 FIX: caption එක null නොවේ නම් පමණක් එකතු කරයි **
         if (caption) {
             formData.append('caption', caption);
             formData.append('parse_mode', 'MarkdownV2'); 
@@ -170,6 +249,7 @@ export default {
         
         formData.append('video', videoBlob, 'video.mp4'); 
 
+        // Add Thumbnail
         if (thumbnailLink) {
             try {
                 const thumbResponse = await fetch(thumbnailLink);
@@ -178,7 +258,7 @@ export default {
                     formData.append('thumb', thumbBlob, 'thumbnail.jpg');
                 } 
             } catch (e) {
-                // Error handling
+                console.error("Error fetching thumbnail:", e);
             }
         }
 
@@ -191,13 +271,11 @@ export default {
             const telegramResult = await telegramResponse.json();
             
             if (!telegramResponse.ok) {
-                // error message එක පිරිසිදු කර ඇත
-                await this.sendMessage(api, chatId, escapeMarkdownV2(`❌ වීඩියෝව යැවීම අසාර්ථකයි! (Error: ${telegramResult.description || 'නොදන්නා දෝෂයක්.'})`), replyToMessageId);
+                await this.sendMessage(api, chatId, escapeMarkdownV2(`❌ වීඩියෝව යැවීම අසාර්ථකයි! (Error: ${telegramResult.description || 'නොදන්නා දෝෂයක්\\.'})`), replyToMessageId);
             }
             
         } catch (e) {
-            // error message එක පිරිසිදු කර ඇත
-            await this.sendMessage(api, chatId, escapeMarkdownV2(`❌ වීඩියෝව යැවීම අසාර්ථකයි! (Network හෝ Timeout දෝෂයක්).`), replyToMessageId);
+            await this.sendMessage(api, chatId, escapeMarkdownV2(`❌ වීඩියෝව යැවීම අසාර්ථකයි! (Network හෝ Timeout දෝෂයක්)\\.`), replyToMessageId);
         }
     }
 };
