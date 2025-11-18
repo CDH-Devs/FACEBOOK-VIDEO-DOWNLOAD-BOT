@@ -47,22 +47,20 @@ export default {
                                 'Referer': 'https://fdown.net/', 
                             },
                             body: formData.toString(),
-                            redirect: 'follow' // Redirection Fix
+                            redirect: 'follow' 
                         });
 
                         const resultHtml = await fdownResponse.text();
 
-                        // 3. HTML ප්‍රතිචාරයෙන් HD සහ Normal Video Links Scrap කිරීම (අවසන් නිවැරදි කිරීම)
+                        // 3. HTML ප්‍රතිචාරයෙන් HD සහ Normal Video Links Scrap කිරීම
                         let videoUrl = null;
 
-                        // HD Link එක සොයන ලිහිල් කළ RegEx එක
                         const hdLinkRegex = /<a[^>]+href=["']?([^"'\s]+)["']?[^>]*>.*Download Video in HD Quality.*<\/a>/i;
                         let match = resultHtml.match(hdLinkRegex);
 
                         if (match && match[1]) {
                             videoUrl = match[1]; 
                         } else {
-                            // Normal Quality Link එකක් සොයන ලිහිල් කළ RegEx එක (Fallback)
                             const normalLinkRegex = /<a[^>]+href=["']?([^"'\s]+)["']?[^>]*>.*Download Video in Normal Quality.*<\/a>/i;
                             match = resultHtml.match(normalLinkRegex);
 
@@ -72,14 +70,21 @@ export default {
                         }
 
                         if (videoUrl) {
+                            // ** URL Clean up කිරීම **
+                            let cleanedUrl = videoUrl.replace(/&amp;/g, '&');
+                            try {
+                                cleanedUrl = decodeURIComponent(cleanedUrl);
+                            } catch (e) {
+                                console.warn("URL decoding failed, using raw URL.");
+                            }
+
                             const quality = hdLinkRegex.test(resultHtml) ? "HD" : "Normal";
-                            console.log(`[SUCCESS] Video Link found (${quality}): ${videoUrl}`);
+                            console.log(`[SUCCESS] Video Link found (${quality}): ${cleanedUrl}`);
                             
-                            // 4. Telegram වෙත වීඩියෝව යැවීම (sendVideo)
-                            await this.sendVideo(telegramApi, chatId, videoUrl, `මෙන්න ඔබගේ වීඩියෝව! ${quality} Quality එකෙන් download කර ඇත.`, messageId);
+                            // 4. Telegram වෙත වීඩියෝව යැවීම (cleanedUrl භාවිතා කරමින්)
+                            await this.sendVideo(telegramApi, chatId, cleanedUrl, `මෙන්න ඔබගේ වීඩියෝව! ${quality} Quality එකෙන් download කර ඇත.`, messageId);
                             
                         } else {
-                            // Link එකක් සොයා ගැනීමට නොහැකි නම්, Log එකට සම්පූර්ණ HTML ප්‍රතිචාරය යවමු.
                             console.error(`[SCRAPING FAILED] No HD/Normal link found for ${text}. Full HTML Response: ${resultHtml}`);
                             
                             await this.sendMessage(telegramApi, chatId, '⚠️ සමාවෙන්න, වීඩියෝ Download Link එක සොයා ගැනීමට නොහැකි විය. වීඩියෝව Private (පුද්ගලික) විය හැක.', messageId);
@@ -103,7 +108,7 @@ export default {
             return new Response('OK', { status: 200 }); 
         }
     },
-
+    // ... sendMessage සහ sendVideo සහායක function ...
     async sendMessage(api, chatId, text, replyToMessageId) {
         try {
             await fetch(`${api}/sendMessage`, {
