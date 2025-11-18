@@ -70,12 +70,20 @@ export default {
                         }
 
                         if (videoUrl) {
-                            // ** URL Clean up කිරීම **
+                            // ** URL Clean up සහ Length/Timeout Fix **
                             let cleanedUrl = videoUrl.replace(/&amp;/g, '&');
+                            cleanedUrl = cleanedUrl.replace(/&dl=[01]/, ''); 
+                            
                             try {
                                 cleanedUrl = decodeURIComponent(cleanedUrl);
                             } catch (e) {
                                 console.warn("URL decoding failed, using raw URL.");
+                            }
+                            
+                            // .mp4 link එකේ මූලික කොටස පමණක් ලබා ගැනීමට උත්සාහ කිරීම (Link Expire වීම අවම කිරීමට)
+                            let baseVideoUrlMatch = cleanedUrl.match(/(.*\.mp4\?.*)/i);
+                            if (baseVideoUrlMatch && baseVideoUrlMatch[1]) {
+                                cleanedUrl = baseVideoUrlMatch[1];
                             }
 
                             const quality = hdLinkRegex.test(resultHtml) ? "HD" : "Normal";
@@ -108,7 +116,7 @@ export default {
             return new Response('OK', { status: 200 }); 
         }
     },
-    // ... sendMessage සහ sendVideo සහායක function ...
+
     async sendMessage(api, chatId, text, replyToMessageId) {
         try {
             await fetch(`${api}/sendMessage`, {
