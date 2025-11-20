@@ -1,6 +1,6 @@
 /**
  * src/index.js
- * Final Code V31 (Fixes the IIFE Syntax Error on line ~415 for bun/wrangler build)
+ * Final Code V32 (Includes Broadcast Chunking/Batching for robustness against timeouts)
  * Developer: @chamoddeshan
  */
 
@@ -19,8 +19,6 @@ const telegramApi = `https://api.telegram.org/bot${BOT_TOKEN}`;
 function htmlBold(text) {
     return `<b>${text}</b>`;
 }
-
-// Escaping is handled by setting parse_mode: 'HTML'
 
 // *** PROGRESS_STATES for better readability (V29) ***
 const PROGRESS_STATES = [
@@ -272,57 +270,72 @@ class WorkerHandlers {
         }
     }
     
-    // --- Broadcast Feature (Implemented) ---
+    // --- Broadcast Feature (FIXED WITH BATCHING/CHUNKING) ---
     async broadcastMessage(fromChatId, originalMessageId) {
         if (!this.env.USER_DATABASE) return { successfulSends: 0, failedSends: 0 };
         
+        const BATCH_SIZE = 50; // එක් වරකට යවන පණිවිඩ ගණන
         let successfulSends = 0;
         let failedSends = 0;
 
         try {
+            // KV List Keys මඟින් සියලුම Users IDs ලබාගැනීම
             const list = await this.env.USER_DATABASE.list({ prefix: 'user:' });
             const userKeys = list.keys.map(key => key.name.split(':')[1]);
-
+            
+            const totalUsers = userKeys.length;
+            console.log(`[BROADCAST] Total users found: ${totalUsers}`);
+            
             const getMessageUrl = `${telegramApi}/forwardMessage`; 
+            
+            // Users ලා BATCHES වලට බෙදීම
+            for (let i = 0; i < totalUsers; i += BATCH_SIZE) {
+                const batch = userKeys.slice(i, i + BATCH_SIZE);
+                console.log(`[BROADCAST] Processing batch ${Math.ceil((i + 1) / BATCH_SIZE)}/${Math.ceil(totalUsers / BATCH_SIZE)} (Size: ${batch.length})`);
+                
+                // වර්තමාන Batch එක සඳහා Promises අරාවක් නිර්මාණය කිරීම
+                const sendPromises = batch.map(async (userId) => {
+                    // Owner ID එකට ආපසු යැවීම වළක්වයි
+                    if (userId.toString() === OWNER_ID.toString()) return; 
 
-            // Create an array of promises for concurrent sending
-            const sendPromises = userKeys.map(async (userId) => {
-                // Owner ID එකට ආපසු යැවීම වළක්වයි
-                if (userId.toString() === OWNER_ID.toString()) return; 
+                    try {
+                        const forwardBody = {
+                            chat_id: userId,
+                            from_chat_id: fromChatId,
+                            message_id: originalMessageId, 
+                        };
+                        
+                        const response = await fetch(getMessageUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(forwardBody),
+                        });
 
-                try {
-                    // Forward the original message (supporting text, photo, video, etc.)
-                    const forwardBody = {
-                        chat_id: userId,
-                        from_chat_id: fromChatId,
-                        message_id: originalMessageId, 
-                    };
-                    
-                    const response = await fetch(getMessageUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(forwardBody),
-                    });
-
-                    if (response.ok) {
-                        successfulSends++;
-                    } else {
-                        failedSends++;
-                        const result = await response.json();
-                        // Remove blocked users (Error 403: Forbidden)
-                        if (result.error_code === 403) {
-                             console.log(`User ${userId} blocked the bot. Removing from KV.`);
-                             await this.env.USER_DATABASE.delete(`user:${userId}`);
+                        if (response.ok) {
+                            successfulSends++;
+                        } else {
+                            failedSends++;
+                            const result = await response.json();
+                            // Block වූ Users ලා ඉවත් කිරීම
+                            if (result.error_code === 403) {
+                                 console.log(`User ${userId} blocked the bot. Removing from KV.`);
+                                 // KV Delete කිරීම background task එකක් ලෙස ctx.waitUntil() තුළ ක්‍රියාත්මක වේ
+                                 this.env.USER_DATABASE.delete(`user:${userId}`);
+                            }
                         }
+                    } catch (e) {
+                        console.error(`Broadcast failed for user ${userId}:`, e);
+                        failedSends++;
                     }
-                } catch (e) {
-                    console.error(`Broadcast failed for user ${userId}:`, e);
-                    failedSends++;
-                }
-            });
+                });
 
-            // Wait for all messages to attempt sending
-            await Promise.allSettled(sendPromises);
+                // Batch එකේ සියලුම promises අවසන් වනතුරු රැඳී සිටීම
+                await Promise.allSettled(sendPromises);
+                
+                // Telegram Rate Limits වළක්වා ගැනීමට Batch අතර තත්පර 1ක රැඳී සිටීම
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
 
         } catch (e) {
             console.error("Error listing users for broadcast:", e);
@@ -385,7 +398,7 @@ export default {
                 if (isOwner && message.reply_to_message) {
                     const repliedMessage = message.reply_to_message;
                     
-                    // Prompt Message එක හඳුනාගැනීම
+                    // Prompt Message එක හඳුනාගැනීම සඳහා සරල පරීක්ෂාවක්
                     if (repliedMessage.text && repliedMessage.text.includes("කරුණාකර දැන් ඔබ යැවීමට අවශ්‍ය පණිවිඩය එවන්න:")) {
                         
                         const messageToBroadcastId = messageId; 
@@ -396,7 +409,6 @@ export default {
                         await handlers.editMessage(chatId, promptMessageId, htmlBold("📣 Broadcast කිරීම ආරම්භ විය. කරුණාකර රැඳී සිටින්න."));
                         
                         // Background එකේ Broadcast කිරීම ආරම්භ කිරීම (using ctx.waitUntil)
-                        // FIX: Changed IIFE syntax from `}())` to `}())` which is common for async IIFE calls.
                         ctx.waitUntil((async () => {
                             try {
                                 const results = await handlers.broadcastMessage(originalChatId, messageToBroadcastId);
@@ -411,7 +423,7 @@ export default {
                                 console.error("Broadcast Process Failed in WaitUntil:", e);
                                 await handlers.sendMessage(chatId, htmlBold("❌ Broadcast කිරීමේ ක්‍රියාවලිය අසාර්ථක විය."), messageToBroadcastId);
                             }
-                        })()); // <--- FIXED IIFE SYNTAX
+                        })()); 
 
                         return new Response('OK', { status: 200 });
                     }
