@@ -221,8 +221,8 @@ export default {
         // ********** [ ඔබගේ අගයන් මෙහි ඇතුළත් කරන්න ] ************************
         // *****************************************************************
         // !!! වැදගත්: කරුණාකර මේවා ඔබේ සත්‍ය අගයන් සමඟ වෙනස් කරන්න !!!
-        const BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE'; 
-        const OWNER_ID = 'YOUR_OWNER_ID_HERE'; 
+        const BOT_TOKEN = '8382727460:AAEgKVISJN5TTuV4O-82sMGQDG3khwjiKR8'; 
+        const OWNER_ID = '1901997764'; 
         // *****************************************************************
 
         const telegramApi = `https://api.telegram.org/bot${BOT_TOKEN}`;
