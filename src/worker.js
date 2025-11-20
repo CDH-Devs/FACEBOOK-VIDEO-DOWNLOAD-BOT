@@ -1,6 +1,6 @@
 /**
  * src/index.js
- * Final Code V37 (Fixes Thumbnail URL encoding (&amp;) and adds robust type checking)
+ * Final Code V38 (Implements Thumbnail Size check (< 512KB) to comply with Telegram API limits)
  * Developer: @chamoddeshan
  */
 
@@ -202,7 +202,7 @@ class WorkerHandlers {
             console.log(`[DEBUG] Video Blob size: ${videoBlob.size} bytes`);
             formData.append('video', videoBlob, 'video.mp4'); 
 
-            // 2. Robust Thumbnail Fetching and Appending (Headers added - V36/V37 change)
+            // 2. Robust Thumbnail Fetching and Appending (Headers and Size Check - V38 change)
             if (thumbnailLink) {
                 console.log(`[DEBUG] Attempting to fetch thumbnail from: ${thumbnailLink.substring(0, 50)}...`); 
 
@@ -221,12 +221,14 @@ class WorkerHandlers {
                         if (contentType && contentType.startsWith('image/')) {
                             const thumbBlob = await thumbResponse.blob();
                             
-                            // Check size again
-                            if (thumbBlob.size > 0) {
+                            // Check size again AND impose a Telegram safe limit (e.g., < 512KB) (V38 FIX)
+                            const MAX_THUMBNAIL_SIZE_BYTES = 512 * 1024; // 512 KB
+                            
+                            if (thumbBlob.size > 0 && thumbBlob.size < MAX_THUMBNAIL_SIZE_BYTES) { 
                                 formData.append('thumb', thumbBlob, 'thumbnail.jpg');
                                 console.log(`[DEBUG] Thumbnail successfully attached (Size: ${thumbBlob.size} bytes, Type: ${contentType}).`);
                             } else {
-                                console.warn("Thumbnail fetch was OK, but the blob was zero size. Skipping.");
+                                console.warn(`Thumbnail skipped: Size (${thumbBlob.size} bytes) is invalid or exceeds the safe limit (${MAX_THUMBNAIL_SIZE_BYTES} bytes).`);
                             }
                         } else {
                             console.warn(`Thumbnail fetch OK, but content type is not image (Type: ${contentType}). Skipping.`);
