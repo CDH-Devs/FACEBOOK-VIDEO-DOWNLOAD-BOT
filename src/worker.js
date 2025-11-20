@@ -1,6 +1,6 @@
 /**
  * src/index.js
- * Final Code V34 (Uses copyMessage API to hide 'Forwarded from' tag)
+ * Final Code V35 (Fixes Thumbnail issue by strengthening sendVideo logic)
  * Developer: @chamoddeshan
  */
 
@@ -163,13 +163,13 @@ class WorkerHandlers {
         }
     }
 
-    // --- sendVideo (With 403 Fix Headers) ---
+    // --- sendVideo (With 403 Fix Headers and robust Thumbnail handling) ---
     async sendVideo(chatId, videoUrl, caption = null, replyToMessageId, thumbnailLink = null, inlineKeyboard = null) {
         
         console.log(`[DEBUG] Attempting to send video. URL: ${videoUrl.substring(0, 50)}...`);
         
         try {
-            // FIX: 403 Forbidden Error මඟහැරීමට User-Agent සහ Referer Headers එකතු කිරීම.
+            // 1. Fetch Video Stream
             const videoResponse = await fetch(videoUrl, {
                 method: 'GET',
                 headers: {
@@ -202,19 +202,28 @@ class WorkerHandlers {
             console.log(`[DEBUG] Video Blob size: ${videoBlob.size} bytes`);
             formData.append('video', videoBlob, 'video.mp4'); 
 
+            // 2. Robust Thumbnail Fetching and Appending (වැඩි දියුණු කළ කොටස)
             if (thumbnailLink) {
                 try {
                     const thumbResponse = await fetch(thumbnailLink);
                     if (thumbResponse.ok) {
                         const thumbBlob = await thumbResponse.blob();
-                        formData.append('thumb', thumbBlob, 'thumbnail.jpg');
+                        // Check if thumbBlob is valid before appending
+                        if (thumbBlob.size > 0 && thumbBlob.type.startsWith('image/')) {
+                            formData.append('thumb', thumbBlob, 'thumbnail.jpg');
+                            console.log(`[DEBUG] Thumbnail successfully attached (Size: ${thumbBlob.size} bytes).`);
+                        } else {
+                            console.warn("Thumbnail fetch was OK, but the blob was invalid or zero size.");
+                        }
                     } else {
+                        console.warn(`Thumbnail fetch failed with status: ${thumbResponse.status}. Skipping thumbnail.`);
                         if (thumbResponse.body) { await thumbResponse.body.cancel(); }
                     } 
                 } catch (e) { 
-                    console.warn("Thumbnail fetch failed:", e);
+                    console.error("Thumbnail fetch general error:", e);
                 }
             }
+            // -----------------------------------------------------------------
             
             if (inlineKeyboard) {
                 formData.append('reply_markup', JSON.stringify({
@@ -222,6 +231,7 @@ class WorkerHandlers {
                 }));
             }
 
+            // 3. Send Request to Telegram API
             const telegramResponse = await fetch(`${telegramApi}/sendVideo`, {
                 method: 'POST',
                 body: formData, 
