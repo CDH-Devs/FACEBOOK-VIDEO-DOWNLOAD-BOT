@@ -1,31 +1,32 @@
 /**
  * src/index.js
- * Final Fix V11 (Enhanced Error Logging for Diagnosis)
- * Fixes: 500 Internal Server Error, Missing User Start Message
- * Features: Console Logging added for Telegram API failures (especially sendMessage/sendMessageWithKeyboard)
+ * Final Fix V12 (Markdown V2 Escape Fix)
+ * Fixes: Bad Request: can't parse entities: Character '.' is reserved
  */
 
-// ** 1. MarkdownV2 හි සියලුම විශේෂ අක්ෂර Escape කිරීමේ Helper Function **
+// ** 1. MarkdownV2 හි සියලුම විශේෂ අක්ෂර Escape කිරීමේ Helper Function (FIXED) **
 function escapeMarkdownV2(text) {
     if (!text) return "";
-    // Note: The original regex already had the correct escaping for MarkdownV2.
-    return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\\\])/g, '\\$1');
+    // MarkdownV2 හිදී escape කළ යුතු සියලුම අක්ෂර: _, *, [, ], (, ), ~, `, >, #, +, -, =, |, {, }, ., !
+    // '\\' ද escape කළ යුතුය, නමුත් එය JS String එකක දැමීමේදී ත්‍රිත්ව escape අවශ්‍ය වේ.
+    // කෙසේ වෙතත්, පහත regex එක මගින් 'ත්‍රිත්ව' ගැටළු වළක්වා ගනී.
+    return text.replace(/([_*[\]()~`>#+\-=|{}.!\\\\])/g, '\\$1');
 }
 
-// ** 2. Scraped Title/Stats සඳහා Cleaner Function (භාවිතා නොවුනත් තිබිය යුතුය) **
+// ** 2. Scraped Title/Stats සඳහා Cleaner Function **
 function sanitizeText(text) {
     if (!text) return "";
     let cleaned = text.replace(/<[^>]*>/g, '').trim();
     cleaned = cleaned.replace(/\s\s+/g, ' ');
     cleaned = cleaned.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-    cleaned = cleaned.replace(/([_*\[\]()~`>#+\-=|{}.!\\\\])/g, '\\$1');
-    return cleaned;
+    // Escape the cleaned text as well, just in case
+    return escapeMarkdownV2(cleaned); 
 }
 
 export default {
     
     // =======================================================
-    // I. KV Database Access Functions (Within Worker Object)
+    // I. KV Database Access Functions
     // =======================================================
 
     async saveUserId(env, userId) {
@@ -139,7 +140,6 @@ export default {
                 }),
             });
             if (!response.ok) {
-                // **මෙම ස්ථානයෙන් ඔබට දෝෂය පිළිබඳ විස්තරයක් ලැබිය යුතුය**
                 console.error(`sendMessageWithKeyboard API Failed (Chat ID: ${chatId}):`, await response.text());
             }
         } catch (e) { 
@@ -283,7 +283,7 @@ export default {
                 ctx.waitUntil(this.saveUserId(env, chatId));
                 
                 if (text === '/start') {
-                    const userName = message.from.first_name || "ප්‍රියතම මිතුර!";
+                    const userName = message.from.first_name || "ප්‍රියතම මිතුර"; // තිත ඉවත් කරන ලදී
 
                     // Owner Panel
                     if (OWNER_ID && chatId.toString() === OWNER_ID.toString()) {
@@ -302,13 +302,16 @@ export default {
                     } else {
                         // සාමාන්‍ය User Start Message
                         console.log(`[START] User Start Message Requested by: ${chatId}`);
+                        // MarkdownV2 ගැටළු ඇති අක්ෂර සඳහා escapeMarkdownV2 යොදන ලදී.
+                        
+                        const escapedUserName = escapeMarkdownV2(userName);
 
                         const userStartMessage = 
-                            `👋 Hello Dear **${escapeMarkdownV2(userName)}**\\! \n\n` +
-                            `💁‍♂️ මේ BOT ගෙන් පුළුවන් ඔයාට __Facebook Video__ ලේසියෙන්ම __Download__ කර ගන්න\.\n\n` +
-                            `🎯 මේ BOT පැය __24/7__ ම Active එකේ තියෙනවා\\.🔔 \n\n` +
+                            `👋 Hello Dear **${escapedUserName}**\\! \n\n` +
+                            `💁‍♂️ මේ BOT ගෙන් පුළුවන් ඔයාට __Facebook Video__ ලේසියෙන්ම __Download__ කර ගන්න\\.\n\n` +
+                            `🎯 මේ BOT පැය __24/7__ ම Active එකේ තියෙනවා\\.\\🔔 \n\n` +
                             `◇───────────────◇\n\n` +
-                            `🚀 __Developer__ : @chamoddeshan\n` +
+                            `🚀 __Developer__ : \\@chamoddeshan\n` +
                             `🔥 __C D H Corporation__ ©\n\n` +
                             `◇───────────────◇`;
                         
@@ -452,7 +455,7 @@ export default {
 
         } catch (e) {
             // ප්‍රධාන දෝෂය Console Log කිරීම (FATAL)
-            console.error("--- FATAL FETCH ERROR (Check Bot Token/ID) ---");
+            console.error("--- FATAL FETCH ERROR (Worker Logic Error) ---");
             console.error("The worker failed to process the update:", e);
             console.error("-------------------------------------------------");
             return new Response('OK', { status: 200 }); 
