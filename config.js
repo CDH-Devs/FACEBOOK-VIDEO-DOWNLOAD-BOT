@@ -1,4 +1,4 @@
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB Limit
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 
 const telegramApi = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
