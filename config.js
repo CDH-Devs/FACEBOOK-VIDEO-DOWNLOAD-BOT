@@ -1,6 +1,6 @@
-const BOT_TOKEN = '8382727460:AAEgKVISJN5TTuV4O-82sMGQDG3khwjiKR8'; 
-const OWNER_ID = '1901997764'; 
-const API_URL = "https://fdown.isuru.eu.org/info"; 
+const BOT_TOKEN = ''; 
+const OWNER_ID = ''; 
+const API_URL = ""; 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB Limit
 
 const telegramApi = `https://api.telegram.org/bot${BOT_TOKEN}`;
