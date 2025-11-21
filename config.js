@@ -1,6 +1,3 @@
-const BOT_TOKEN = ''; 
-const OWNER_ID = ''; 
-const API_URL = ""; 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB Limit
 
 const telegramApi = `https://api.telegram.org/bot${BOT_TOKEN}`;
