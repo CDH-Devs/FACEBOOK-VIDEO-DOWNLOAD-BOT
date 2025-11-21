@@ -1,9 +1,14 @@
 import { MAX_FILE_SIZE_BYTES, PROGRESS_STATES, USER_LIST_KEY } from './config';
 
+// --- Utility Functions ---
+
 function htmlBold(text) {
     return `<b>${text}</b>`;
 }
 
+/**
+ * Seconds to H:MM:SS or M:SS format (Fixed to handle decimals and round off).
+ */
 function formatDuration(seconds) {
     if (typeof seconds !== 'number' || seconds < 0) return 'N/A';
     const totalSeconds = Math.round(seconds); 
@@ -17,6 +22,9 @@ function formatDuration(seconds) {
     return parts.join(':');
 }
 
+/**
+ * Formats bytes into human-readable string.
+ */
 function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -26,6 +34,9 @@ function formatBytes(bytes, decimals = 2) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
+/**
+ * Generates the video caption with metadata.
+ */
 function formatCaption(data) {
     let caption = htmlBold(data.title || 'Facebook Video') + '\n\n';
     caption += htmlBold('Uploader:') + ` ${data.author || 'N/A'}\n`;
@@ -37,6 +48,9 @@ function formatCaption(data) {
     return caption;
 }
 
+/**
+ * Fetches video metadata from the external API.
+ */
 async function getApiMetadata(videoUrl, apiUrl) {
     const url = `${apiUrl}?url=${encodeURIComponent(videoUrl)}`;
     const response = await fetch(url);
@@ -50,6 +64,8 @@ async function getApiMetadata(videoUrl, apiUrl) {
     return data.data; 
 }
 
+// --- Worker Handler Class ---
+
 class WorkerHandlers {
     
     constructor(env) {
@@ -62,6 +78,8 @@ class WorkerHandlers {
         this.PROGRESS_INTERVAL_MS = 3000;
         this.MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_BYTES;
         this.USER_LIST_KEY = USER_LIST_KEY; 
+        // Unique string for detecting broadcast prompt replies
+        this.BROADCAST_PROMPT_KEY = "ReplyToBroadcastPrompt-42";
     }
 
     async apiCall(method, body) {
@@ -205,6 +223,7 @@ class WorkerHandlers {
                 await this.apiCall('copyMessage', body);
                 successfulSends++;
             } catch (e) {
+                // Ignore API errors, typically due to blocked bots or invalid user IDs
                 failedSends++;
             }
         });
@@ -228,6 +247,7 @@ class WorkerHandlers {
             try {
                 await this.editMessage(chatId, messageId, text);
             } catch (e) {
+                // Stop progress simulation if message edit fails (e.g., message was deleted)
                  this.progressActive = false;
                  return;
             }
@@ -235,6 +255,8 @@ class WorkerHandlers {
             step = nextStep;
             
             if (this.progressActive) {
+                // Note: setTimeout works in Workers but is not guaranteed to fire if the script execution ends. 
+                // However, since this is for Telegram progress simulation, the user is relying on this as a best-effort.
                 setTimeout(updateProgress, this.PROGRESS_INTERVAL_MS);
             }
         };
@@ -242,6 +264,25 @@ class WorkerHandlers {
         updateProgress();
     }
 }
+
+// --- Inline Keyboard Definitions ---
+
+const getUserKeyboard = () => [
+    [{ text: 'C D H Corporation © ✅', callback_data: 'ignore_c_d_h' }] 
+];
+
+const getAdminKeyboard = () => [
+    [{ text: '📊 Users Count', callback_data: 'admin_users_count' }],
+    [{ text: '📣 Broadcast', callback_data: 'admin_broadcast' }],
+    [{ text: 'C D H Corporation © ✅', callback_data: 'ignore_c_d_h' }] 
+];
+
+const getInitialProgressKeyboard = () => [
+    [{ text: PROGRESS_STATES[0].text.replace(/<[^>]*>/g, ''), callback_data: 'ignore_progress' }]
+];
+
+
+// --- Worker Fetch Handler ---
 
 export default {
     
@@ -256,14 +297,6 @@ export default {
 
         const handlers = new WorkerHandlers(env);
         
-        const userInlineKeyboard = [
-            [{ text: 'C D H Corporation © ✅', callback_data: 'ignore_c_d_h' }] 
-        ];
-        
-        const initialProgressKeyboard = [
-             [{ text: PROGRESS_STATES[0].text.replace(/<[^>]*>/g, ''), callback_data: 'ignore_progress' }]
-        ];
-
         try {
             const update = await request.json();
             const message = update.message;
@@ -284,26 +317,30 @@ export default {
 
                 ctx.waitUntil(handlers.saveUserId(chatId));
 
+                // 1. Admin Broadcast Reply Handler
                 if (isOwner && message.reply_to_message) {
                     const repliedMessage = message.reply_to_message;
                     
-                    if (repliedMessage.text && repliedMessage.text.includes("කරුණාකර දැන් ඔබ යැවීමට අවශ්‍ය")) {
+                    // Check if the replied message contains the specific broadcast key from the prompt
+                    if (repliedMessage.text && repliedMessage.text.includes(handlers.BROADCAST_PROMPT_KEY)) {
                         
                         const messageToBroadcastId = messageId; 
                         const originalChatId = chatId;
                         const promptMessageId = repliedMessage.message_id; 
 
-                        await handlers.editMessage(chatId, promptMessageId, htmlBold("📣 Broadcast started. Please wait."));
+                        await handlers.deleteMessage(chatId, promptMessageId);
+                        const progressMsgId = await handlers.sendMessage(chatId, htmlBold("📣 Broadcast started. Please wait..."), messageId);
                         
                         ctx.waitUntil((async () => {
                             try {
                                 const results = await handlers.broadcastMessage(originalChatId, messageToBroadcastId);
                                 
                                 const resultMessage = htmlBold('Broadcast Complete ✅') + `\n\n`
-                                                    + htmlBold(`🚀 Successful: `) + results.successfulSends + '\n'
-                                                    + htmlBold(`❗️ Failed/Blocked: `) + results.failedSends;
+                                                     + htmlBold(`🚀 Successful: `) + results.successfulSends + '\n'
+                                                     + htmlBold(`❗️ Failed/Blocked: `) + results.failedSends;
                                 
                                 await handlers.sendMessage(chatId, resultMessage, messageToBroadcastId); 
+                                if (progressMsgId) await handlers.deleteMessage(chatId, progressMsgId);
 
                             } catch (e) {
                                 await handlers.sendMessage(chatId, htmlBold("❌ Broadcast Process Failed.") + `\n\nError: ${e.message}`, messageToBroadcastId);
@@ -314,6 +351,7 @@ export default {
                     }
                 }
                 
+                // 2. Admin Quick Broadcast Command /brod
                 if (isOwner && text && text.toLowerCase().startsWith('/brod') && message.reply_to_message) {
                     const messageToBroadcastId = message.reply_to_message.message_id; 
                     const originalChatId = chatId;
@@ -338,16 +376,12 @@ export default {
                     return new Response('OK', { status: 200 });
                 }
                 
+                // 3. /start Command Handler
                 if (text && text.toLowerCase().startsWith('/start')) {
                     
                     if (isOwner) {
                         const ownerText = htmlBold("👑 Welcome Back, Admin!") + "\n\nThis is your Admin Control Panel.";
-                        const adminKeyboard = [
-                            [{ text: '📊 Users Count', callback_data: 'admin_users_count' }],
-                            [{ text: '📣 Broadcast', callback_data: 'admin_broadcast' }],
-                            [{ text: 'C D H Corporation © ✅', callback_data: 'ignore_c_d_h' }] 
-                        ];
-                        await handlers.sendMessage(chatId, ownerText, messageId, adminKeyboard);
+                        await handlers.sendMessage(chatId, ownerText, messageId, getAdminKeyboard());
                     } else {
                         const userText = `👋 <b>Hello Dear ${userName}!</b> 💁‍♂️ You can easily <b>Download Facebook Videos</b> using this BOT.
 
@@ -360,11 +394,12 @@ export default {
 
 ◇───────────────◇`;
                         
-                        await handlers.sendMessage(chatId, userText, messageId, userInlineKeyboard);
+                        await handlers.sendMessage(chatId, userText, messageId, getUserKeyboard());
                     }
                     return new Response('OK', { status: 200 });
                 }
 
+                // 4. Video Link Processing Handler
                 if (text) { 
                     const isLink = /^https?:\/\/(www\.)?(facebook\.com|fb\.watch|fb\.me)/i.test(text);
                     
@@ -377,7 +412,7 @@ export default {
                             chatId, 
                             initialText, 
                             messageId, 
-                            initialProgressKeyboard
+                            getInitialProgressKeyboard()
                         );
                         
                         if (progressMessageId) {
@@ -386,6 +421,7 @@ export default {
                         
                         try {
                             const apiData = await getApiMetadata(text, handlers.apiUrl); 
+                            // Prioritize HD, then SD, then generic link
                             const videoUrl = apiData.hd_url || apiData.sd_url || apiData.video_url || apiData.downloadLink; 
                             const fileSize = apiData.filesize || 0; 
                             
@@ -404,25 +440,25 @@ export default {
                             
                             const finalThumbnailLink = apiData.thumbnailLink || apiData.thumbnail;
 
-                            handlers.progressActive = false;
+                            handlers.progressActive = false; // Stop progress loop
                             
+                            if (progressMessageId) {
+                                await handlers.deleteMessage(chatId, progressMessageId);
+                            }
+
                             if (fileSize > handlers.MAX_FILE_SIZE_BYTES) { 
-                                if (progressMessageId) {
-                                    await handlers.deleteMessage(chatId, progressMessageId);
-                                }
-                                
                                 await handlers.sendLinkMessage(chatId, videoUrl, finalCaption, messageId);
                                 
                             } else {
-                                if (progressMessageId) {
-                                    await handlers.deleteMessage(chatId, progressMessageId);
-                                }
                                 
                                 ctx.waitUntil(handlers.sendAction(chatId, 'upload_video'));
                                 
                                 try {
-                                    await handlers.sendVideo(chatId, videoUrl, finalCaption, messageId, finalThumbnailLink, userInlineKeyboard); 
+                                    // Try sending the video directly
+                                    await handlers.sendVideo(chatId, videoUrl, finalCaption, messageId, finalThumbnailLink, getUserKeyboard()); 
                                 } catch (e) {
+                                    // If sendVideo fails (e.g., telegram cannot fetch the file or other API error), send the direct link instead
+                                    console.error("sendVideo failed, fallback to direct link:", e.message);
                                     await handlers.sendLinkMessage(chatId, videoUrl, finalCaption, messageId);
                                 }
                             }
@@ -443,36 +479,43 @@ export default {
                 } 
             }
             
+            // --- Callback Query Handler ---
             if (callbackQuery) {
                  const chatId = callbackQuery.message.chat.id;
                  const data = callbackQuery.data;
                  const messageId = callbackQuery.message.message_id;
 
-                 if (data === 'ignore_progress' || data === 'ignore_c_d_h') {
-                     const allButtons = callbackQuery.message.reply_markup.inline_keyboard.flat();
-                     const button = allButtons.find(b => b.callback_data === data);
-                     const buttonText = button ? button.text.replace(/<[^>]*>/g, '') : "Action Complete";
-                     
-                     await handlers.answerCallbackQuery(callbackQuery.id, buttonText);
+                 if (data === 'ignore_progress') {
+                     await handlers.answerCallbackQuery(callbackQuery.id, "Searching and downloading...");
                      return new Response('OK', { status: 200 });
                  }
                  
+                 if (data === 'ignore_c_d_h') {
+                    await handlers.answerCallbackQuery(callbackQuery.id, "මෙය තොරතුරු බොත්තමකි.");
+                    return new Response('OK', { status: 200 });
+                 }
+                 
+                 // Owner check for Admin commands
                  if (handlers.ownerId && chatId.toString() !== handlers.ownerId.toString()) {
                       await handlers.answerCallbackQuery(callbackQuery.id, "❌ You cannot use this command.");
                       return new Response('OK', { status: 200 });
                  }
 
                  switch (data) {
-                     case 'admin_users_count':
+                      case 'admin_users_count':
                           const usersCount = await handlers.getAllUsersCount();
                           const countMessage = htmlBold(`📊 Current Users in the Bot: ${usersCount}`);
-                          await handlers.editMessage(chatId, messageId, countMessage);
+                          await handlers.editMessage(chatId, messageId, countMessage, getAdminKeyboard());
                           await handlers.answerCallbackQuery(callbackQuery.id, `Users ${usersCount} ක් සිටී.`);
                           break;
-                     
-                     case 'admin_broadcast':
-                          const broadcastPrompt = htmlBold(`📣 Broadcast Message`) + "\n\n" + htmlBold(`කරුණාකර දැන් ඔබ යැවීමට අවශ්‍ය <b>Text, Photo, හෝ Video</b> එක <b>Reply</b> කරන්න.`);
-                          await handlers.sendMessage(chatId, broadcastPrompt, messageId); 
+                      
+                      case 'admin_broadcast':
+                          // Prompt for the message to broadcast, embedding a unique key for reply detection
+                          const broadcastPromptText = htmlBold(`📣 Broadcast පණිවිඩය`) + 
+                              "\n\n" + htmlBold(`කරුණාකර දැන් ඔබ යැවීමට අවශ්‍ය <b>Text, Photo, හෝ Video</b> එක <b>Reply</b> කරන්න.`) + 
+                              `\n\n\n<!-- ${handlers.BROADCAST_PROMPT_KEY} -->`; // Unique hidden key
+                          
+                          await handlers.editMessage(chatId, messageId, broadcastPromptText, getAdminKeyboard());
                           await handlers.answerCallbackQuery(callbackQuery.id, "Broadcast කිරීම සඳහා පණිවිඩය සූදානම්.");
                           break;
                  }
