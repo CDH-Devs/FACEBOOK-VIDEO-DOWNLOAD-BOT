@@ -1,5 +1,3 @@
-// handlers.js
-
 import { htmlBold } from './helpers';
 import { 
     PROGRESS_STATES 
@@ -10,7 +8,6 @@ class WorkerHandlers {
     constructor(env) {
         this.env = env;
         this.progressActive = true; 
-        // BOT_TOKEN භාවිතයෙන් telegramApi URL එක සාදයි
         this.telegramApi = `https://api.telegram.org/bot${this.env.BOT_TOKEN}`; 
     }
     
@@ -131,18 +128,33 @@ class WorkerHandlers {
         const titleMatch = caption.match(/Title: (.*?)(\n|$)/i);
         const videoTitle = titleMatch ? titleMatch[1].replace(/<\/?b>/g, '').trim() : 'Video File';
         
-        // 1. Base64 Encoding භාවිතයෙන් URL සහ Title එක සංකේතනය (Encode) කරයි.
+        // Caption එකෙන් අනෙක් දත්ත ලබාගැනීම
+        const uploaderMatch = caption.match(/Uploader: (.*?)\n/i);
+        const durationMatch = caption.match(/Duration: (.*?)\n/i);
+        const viewsMatch = caption.match(/Views: (.*?)\n/i);
+        const uploadDateMatch = caption.match(/Uploaded: (.*?)\n/i);
+        
+        // දත්ත Extract කර, "N/A" නොමැතිනම් clean කර ගනී
+        const uploader = uploaderMatch ? uploaderMatch[1].replace(/<\/?b>/g, '').trim() : 'N/A';
+        const duration = durationMatch ? durationMatch[1].replace(/<\/?b>/g, '').trim() : 'N/A';
+        const views = viewsMatch ? viewsMatch[1].replace(/<\/?b>/g, '').trim() : 'N/A';
+        const uploadDate = uploadDateMatch ? uploadDateMatch[1].replace(/<\/?b>/g, '').trim() : 'N/A';
+        
+        // 1. Base64 Encoding භාවිතයෙන් සියලු දත්ත සංකේතනය (Encode) කරයි.
         const encodedVideoUrl = btoa(videoUrl);
         const encodedTitle = btoa(videoTitle);
+        const encodedUploader = btoa(uploader);
+        const encodedDuration = btoa(duration);
+        const encodedViews = btoa(views.toString().replace(/,/g, '')); 
+        const encodedUploadDate = btoa(uploadDate);
         
         // 2. ⚠️ වැදගත්: මෙය ඔබේ සැබෑ GitHub Pages URL එකට වෙනස් කරන්න ⚠️
         const WEB_PAGE_BASE_URL = "https://chamodbinancelk-afk.github.io/FACEBOOK-VIDEO-DOWNLOAD-WEB/"; 
         
-        // URL එකට query parameters ලෙස සංකේතනය කළ දත්ත යවයි.
-        const redirectLink = `${WEB_PAGE_BASE_URL}?url=${encodedVideoUrl}&title=${encodedTitle}`;
+        // සියලුම Encoded දත්ත URL එකට එක් කිරීම
+        const redirectLink = `${WEB_PAGE_BASE_URL}?url=${encodedVideoUrl}&title=${encodedTitle}&uploader=${encodedUploader}&duration=${encodedDuration}&views=${encodedViews}&uploadDate=${encodedUploadDate}`;
         
         const inlineKeyboard = [
-            // දැන්, බොත්තම ඔබගේ වෙබ් පිටුවට යොමු කරනු ඇත.
             [{ text: '🌐 Download Link ලබා ගන්න', url: redirectLink }], 
             [{ text: 'C D H Corporation © ✅', callback_data: 'ignore_c_d_h' }] 
         ];
