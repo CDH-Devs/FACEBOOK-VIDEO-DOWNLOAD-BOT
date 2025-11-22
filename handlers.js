@@ -1,27 +1,17 @@
-// handlers.js - GitHub Pages සබැඳියට යාවත්කාලීන කර ඇත
+// handlers.js
 
-import { htmlBold, formatDuration } from './helpers';
+import { htmlBold } from './helpers';
 import { 
-    MAX_FILE_SIZE_BYTES,
     PROGRESS_STATES 
 } from './config';
-
-// Base64 Encoding Helper Function (WorkerHandlers class එකට පිටතින්)
-// Cloudflare Workers පරිසරය සඳහා ආරක්ෂිත Base64 Encoding
-function encodeBase64(text) {
-    if (!text) return '';
-    return btoa(unescape(encodeURIComponent(text))); 
-}
-
 
 class WorkerHandlers {
     
     constructor(env) {
         this.env = env;
         this.progressActive = true; 
-        
-        // ENV variable වෙතින් API Base URL එක ලබා ගැනීම
-        this.telegramApi = `https://api.telegram.org/bot${this.env.BOT_TOKEN}`;
+        // BOT_TOKEN භාවිතයෙන් telegramApi URL එක සාදයි
+        this.telegramApi = `https://api.telegram.org/bot${this.env.BOT_TOKEN}`; 
     }
     
     async saveUserId(userId) {
@@ -30,7 +20,6 @@ class WorkerHandlers {
         const isNew = await this.env.USER_DATABASE.get(key) === null; 
         if (isNew) {
             try {
-                // KV Binding "USER_DATABASE" භාවිතා කරයි
                 await this.env.USER_DATABASE.put(key, "1"); 
             } catch (e) {}
         }
@@ -46,7 +35,6 @@ class WorkerHandlers {
         }
     }
     
-    // නව විශේෂාංගය: Chat Action යැවීම (typing, upload_video)
     async sendAction(chatId, action) {
         try {
             await fetch(`${this.telegramApi}/sendChatAction`, {
@@ -136,52 +124,46 @@ class WorkerHandlers {
         } catch (e) {}
     }
 
-    // යාවත්කාලීන කරන ලද sendLinkMessage ශ්‍රිතය (GitHub Pages සබැඳිය සමඟ)
-    async sendLinkMessage(chatId, videoUrl, caption, replyToMessageId, apiData = {}) {
+    async sendLinkMessage(chatId, videoUrl, caption, replyToMessageId) {
+        // MAX_FILE_SIZE_BYTES env එකෙන් ලබා ගනී
+        const MAX_FILE_SIZE_MB = (parseInt(this.env.MAX_FILE_SIZE_BYTES) || 52428800) / (1024 * 1024);
         
-        // WORKER_DOMAIN ENV විචල්‍යය දැන් GitHub Pages URL එක විය යුතුය
-        const workerDomain = this.env.WORKER_DOMAIN || 'https://chamodbinancelk-afk.github.io/FACEBOOK-VIDEO-DOWNLOAD-WEB/'; 
+        const titleMatch = caption.match(/Title: (.*?)(\n|$)/i);
+        const videoTitle = titleMatch ? titleMatch[1].replace(/<\/?b>/g, '').trim() : 'Video File';
         
-        // අවසානයේ / තිබුණත් නැතත් නිවැරදිව Domain එක සකස් කරයි
-        const baseUrl = workerDomain.endsWith('/') ? workerDomain.slice(0, -1) : workerDomain;
+        // 1. Base64 Encoding භාවිතයෙන් URL සහ Title එක සංකේතනය (Encode) කරයි.
+        const encodedVideoUrl = btoa(videoUrl);
+        const encodedTitle = btoa(videoTitle);
         
-        // --- DATA ENCODING FOR GITHUB PAGES ---
-        const encodedUrl = encodeBase64(videoUrl);
-        const encodedTitle = encodeBase64(apiData.videoTitle || 'Facebook Video');
-        const encodedUploader = encodeBase64(apiData.uploader || 'Unknown Uploader');
-        const encodedDuration = encodeBase64(formatDuration(apiData.duration) || 'N/A');
-        const encodedViews = encodeBase64((typeof apiData.views === 'number' ? apiData.views.toLocaleString('en-US') : apiData.views) || 'N/A');
-        const encodedUploadDate = encodeBase64(apiData.uploadDate || 'N/A');
+        // 2. ⚠️ වැදගත්: මෙය ඔබේ සැබෑ GitHub Pages URL එකට වෙනස් කරන්න ⚠️
+        const WEB_PAGE_BASE_URL = "https://chamodbinancelk-afk.github.io/FACEBOOK-VIDEO-DOWNLOAD-WEB/"; 
         
-        // 🚨 GitHub Pages URL එක සෘජුවම download.html ගොනුවට යොමු කරයි.
-        const downloadLink = `${baseUrl}/download.html?url=${encodedUrl}&title=${encodedTitle}&uploader=${encodedUploader}&duration=${encodedDuration}&views=${encodedViews}&date=${encodedUploadDate}&thumbnail=${encodeBase64(apiData.thumbnailLink)}`;
-        
-        const largeFileMessage = htmlBold("⚠️ Large file detected.") + `\n\n`
-                               + `The video file size (${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB limit) is too large for direct Telegram upload. Please use the button below to download the file directly.\n\n`
-                               + caption; 
+        // URL එකට query parameters ලෙස සංකේතනය කළ දත්ත යවයි.
+        const redirectLink = `${WEB_PAGE_BASE_URL}?url=${encodedVideoUrl}&title=${encodedTitle}`;
         
         const inlineKeyboard = [
-            [{ text: '🔽 OPEN DOWNLOAD PAGE', url: downloadLink }],
+            // දැන්, බොත්තම ඔබගේ වෙබ් පිටුවට යොමු කරනු ඇත.
+            [{ text: '🌐 Download Link ලබා ගන්න', url: redirectLink }], 
             [{ text: 'C D H Corporation © ✅', callback_data: 'ignore_c_d_h' }] 
         ];
 
-        try {
-            await this.sendMessage(
-                chatId, 
-                largeFileMessage, 
-                replyToMessageId, 
-                inlineKeyboard
-            );
-        } catch (e) {
-            console.error("Failed to send link message:", e);
-        }
+        const largeFileMessage = htmlBold("⚠️ File Size Limit Reached!") + `\n\n`
+                           + `The video file exceeds the Telegram upload limit (${MAX_FILE_SIZE_MB}MB).\n`
+                           + `Please click the button below to get the direct download link from our website.\n\n`
+                           + htmlBold("Title:") + ` ${videoTitle}`; 
+
+        await this.sendMessage(
+            chatId, 
+            largeFileMessage, 
+            replyToMessageId, 
+            inlineKeyboard
+        );
     }
 
 
     async sendVideo(chatId, videoUrl, caption = null, replyToMessageId, thumbnailLink = null, inlineKeyboard = null) {
         
         try {
-            // Facebook වීඩියෝ සෘජුවම fetch කිරීමට අවශ්‍ය Headers
             const videoResponse = await fetch(videoUrl, {
                 method: 'GET',
                 headers: {
@@ -250,7 +232,6 @@ class WorkerHandlers {
         this.progressActive = true;
         const originalText = htmlBold('⌛️ Detecting video... Please wait a moment.'); 
         
-        // config.js වෙතින් PROGRESS_STATES භාවිතා කරයි
         const statesToUpdate = PROGRESS_STATES.slice(1, 10); 
 
         for (let i = 0; i < statesToUpdate.length; i++) {
@@ -290,7 +271,6 @@ class WorkerHandlers {
                 const batch = userKeys.slice(i, i + BATCH_SIZE);
                 
                 const sendPromises = batch.map(async (userId) => {
-                    // OWNER_ID ENV variable වෙතින් ලබා ගනී
                     if (userId.toString() === this.env.OWNER_ID.toString()) return; 
 
                     try {
@@ -311,8 +291,7 @@ class WorkerHandlers {
                         } else {
                             failedSends++;
                             const result = await response.json();
-                            // User blocked the bot (Error 403)
-                            if (result.error_code === 403) { 
+                            if (result.error_code === 403) {
                                 this.env.USER_DATABASE.delete(`user:${userId}`);
                             }
                         }
