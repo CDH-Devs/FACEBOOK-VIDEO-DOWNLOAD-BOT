@@ -14,7 +14,7 @@ export default {
         if (url.pathname === '/download' && request.method === 'GET') {
             
             // **වැදගත්:** GITHUB_PAGES_URL ENV විචල්‍යය භාවිතා කරන්න, නැතිනම් ඔබේ GitHub Pages URL එක සකසන්න.
-            const githubPagesBaseUrl = env.GITHUB_PAGES_URL || 'https://<ඔබේ_පරිශීලක_නම>.github.io/<ඔබේ_රෙපෝ_නම>/index.html'; 
+            const githubPagesBaseUrl = env.GITHUB_PAGES_URL || 'https://chamodbinancelk-afk.github.io/FACEBOOK-VIDEO-DOWNLOAD-WEB/index.html'; 
             
             const redirectUrl = new URL(githubPagesBaseUrl);
             
