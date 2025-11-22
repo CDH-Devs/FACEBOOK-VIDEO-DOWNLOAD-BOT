@@ -136,7 +136,7 @@ class WorkerHandlers {
         const encodedTitle = btoa(videoTitle);
         
         // 2. ⚠️ වැදගත්: මෙය ඔබේ සැබෑ GitHub Pages URL එකට වෙනස් කරන්න ⚠️
-        const WEB_PAGE_BASE_URL = "https://chamodbinancelk-afk.github.io/FACEBOOK-VIDEO-DOWNLOAD-WEB/"; 
+        const WEB_PAGE_BASE_URL = "https://cdh-devs.github.io/fbdown/"; 
         
         // URL එකට query parameters ලෙස සංකේතනය කළ දත්ත යවයි.
         const redirectLink = `${WEB_PAGE_BASE_URL}?url=${encodedVideoUrl}&title=${encodedTitle}`;
