@@ -10,7 +10,7 @@ class WorkerHandlers {
     constructor(env) {
         this.env = env;
         this.progressActive = true; 
-        // BOT_TOKEN config.js වෙනුවට env වෙතින් ලබා ගනී
+        // BOT_TOKEN env වෙතින් ලබා ගනී
         this.telegramApi = `https://api.telegram.org/bot${this.env.BOT_TOKEN}`; 
     }
     
@@ -124,21 +124,25 @@ class WorkerHandlers {
     }
 
     async sendLinkMessage(chatId, videoUrl, caption, replyToMessageId) {
-        // MAX_FILE_SIZE_BYTES env එකෙන් ලබා ගනී
         const MAX_FILE_SIZE_BYTES = parseInt(this.env.MAX_FILE_SIZE_BYTES) || 52428800;
         const MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024);
         
-        // 1. Title Extraction: Bold tags ඉවත් කර Title එක ලබා ගනී. (ඔබේ helpers.js එකට අනුව)
+        // 1. Title Extraction: Bold tags ඉවත් කර Title එක ලබා ගනී.
         const titleMatch = caption.match(/Title:\s*<b>(.*?)<\/b>/i);
         const videoTitle = titleMatch ? titleMatch[1].trim() : 'Video File';
         
+        // Thumbnail URL එක Extract කිරීම
+        // Thumbnail: https://example.com/thumb.jpg\n
+        const thumbnailMatch = caption.match(/Thumbnail:\s*(https?:\/\/\S+)/i);
+        const thumbnailUrl = thumbnailMatch ? thumbnailMatch[1].trim() : ''; 
+        
         // 2. අනෙක් Metadata Extraction: Emojis සහ Bold tags ඉවත් කිරීමට generic regex භාවිතා කරයි.
+        // cleanCaption එක සාදා ගනී.
         const cleanCaption = caption.replace(/<[^>]*>/g, '').replace(/👤|⏱️|👁️|📅/g, '').trim(); 
         
         const uploaderMatch = cleanCaption.match(/Uploader:\s*(.*?)\n/i);
         const durationMatch = cleanCaption.match(/Duration:\s*(.*?)\n/i);
         const viewsMatch = cleanCaption.match(/Views:\s*(.*?)\n/i);
-        // "Uploaded:" ලේබලයෙන් පසු ඇති අගය.
         const uploadDateMatch = cleanCaption.match(/Uploaded:\s*(.*?)(\n|◇)/i); 
         
         const uploader = uploaderMatch ? uploaderMatch[1].trim() : 'N/A';
@@ -154,11 +158,12 @@ class WorkerHandlers {
         const encodedDuration = btoa(duration);
         const encodedViews = btoa(views.toString().replace(/,/g, '')); 
         const encodedUploadDate = btoa(uploadDate);
+        const encodedThumbnailUrl = btoa(thumbnailUrl); 
         
         // 4. Redirect Link එක සාදා, සියලු දත්ත එක් කිරීම
         const WEB_PAGE_BASE_URL = "https://chamodbinancelk-afk.github.io/FACEBOOK-VIDEO-DOWNLOAD-WEB/"; // ⚠️ මෙය වෙනස් කරන්න
         
-        const redirectLink = `${WEB_PAGE_BASE_URL}?url=${encodedVideoUrl}&title=${encodedTitle}&uploader=${encodedUploader}&duration=${encodedDuration}&views=${encodedViews}&uploadDate=${encodedUploadDate}`;
+        const redirectLink = `${WEB_PAGE_BASE_URL}?url=${encodedVideoUrl}&title=${encodedTitle}&uploader=${encodedUploader}&duration=${encodedDuration}&views=${encodedViews}&uploadDate=${encodedUploadDate}&thumbnail=${encodedThumbnailUrl}`;
         
         const inlineKeyboard = [
             [{ text: '🌐 Download Link ලබා ගන්න', url: redirectLink }], 
@@ -289,7 +294,7 @@ class WorkerHandlers {
                 const batch = userKeys.slice(i, i + BATCH_SIZE);
                 
                 const sendPromises = batch.map(async (userId) => {
-                    // OWNER_ID config.js වෙනුවට env වෙතින් ලබා ගනී
+                    // OWNER_ID env වෙතින් ලබා ගනී
                     if (userId.toString() === this.env.OWNER_ID.toString()) return; 
 
                     try {
