@@ -1,4 +1,4 @@
-import { htmlBold } from './helpers';
+import { htmlBold, formatDuration } from './helpers'; // ✅ formatDuration එකතු කරන ලදි
 import { 
     telegramApi, 
     OWNER_ID, 
@@ -6,13 +6,13 @@ import {
     PROGRESS_STATES 
 } from './config';
 
-// නව helper ශ්‍රිතය: Base64 Encoding
+// Base64 Encoding Helper Function (WorkerHandlers class එකට පිටතින්)
 function encodeBase64(text) {
     if (!text) return '';
-    if (typeof text === 'number') text = text.toString();
-    // Cloudflare Workers පරිසරයේ btoa() භාවිතා කරයි
+    // Cloudflare Workers සඳහා ආරක්ෂිත Base64 Encoding
     return btoa(unescape(encodeURIComponent(text))); 
 }
+
 
 class WorkerHandlers {
     
@@ -132,41 +132,45 @@ class WorkerHandlers {
         } catch (e) {}
     }
 
-    async sendLinkMessage(chatId, videoUrl, caption, replyToMessageId, apiData) {
+    // ✅ යාවත්කාලීන කරන ලද sendLinkMessage ශ්‍රිතය (Base64 Encoding සහ Redirect URL එක සමග)
+    async sendLinkMessage(chatId, videoUrl, caption, replyToMessageId, apiData = {}) {
         
-        // **වැදගත්:** මෙහි 'WORKER_DOMAIN' env variable එක හෝ default URL එක භාවිතා කරන්න.
-        const workerDomain = this.env.WORKER_DOMAIN || 'https://facebookdownbot.your-worker-domain.workers.dev'; 
+        // WORKER_DOMAIN ENV විචල්‍යය භාවිතා කරන්න, නැතිනම් ඔබේ Worker URL එක සකසන්න
+        // **වැදගත්**: මෙය නිවැරදිව Cloudflare ENV වල සැකසිය යුතුයි.
+        const workerDomain = this.env.WORKER_DOMAIN || 'https://facebookdownbot.deshanchamod174.workers.dev/'; 
         
-        const downloadPageUrl = new URL(workerDomain);
-        downloadPageUrl.pathname = '/download'; // index.js මඟින් GitHub Pages වෙත යොමු කරයි.
+        const baseUrl = workerDomain.endsWith('/') ? workerDomain.slice(0, -1) : workerDomain;
         
-        // Base64 Encoding
-        downloadPageUrl.searchParams.set('url', encodeBase64(videoUrl));
-        downloadPageUrl.searchParams.set('title', encodeBase64(apiData.videoTitle));
-        downloadPageUrl.searchParams.set('uploader', encodeBase64(apiData.uploader));
-        downloadPageUrl.searchParams.set('duration', encodeBase64(apiData.duration));
-        downloadPageUrl.searchParams.set('views', encodeBase64(apiData.views));
-        downloadPageUrl.searchParams.set('uploadDate', encodeBase64(apiData.uploadDate));
-        // Thumbnail අවශ්‍ය නොවන බැවින්, 'thumbnail' parameter එක සම්පූර්ණයෙන්ම ඉවත් කර ඇත.
-
+        // --- DATA ENCODING FOR GITHUB PAGES ---
+        const encodedUrl = encodeBase64(videoUrl);
+        const encodedTitle = encodeBase64(apiData.videoTitle || 'Facebook Video');
+        const encodedUploader = encodeBase64(apiData.uploader || 'Unknown Uploader');
+        const encodedDuration = encodeBase64(formatDuration(apiData.duration) || 'N/A');
+        const encodedViews = encodeBase64((typeof apiData.views === 'number' ? apiData.views.toLocaleString('en-US') : apiData.views) || 'N/A');
+        const encodedUploadDate = encodeBase64(apiData.uploadDate || 'N/A');
+        
+        // /download endpoint එක වෙත යොමු කරන Worker URL එක සෑදීම
+        const downloadLink = `${baseUrl}/download?url=${encodedUrl}&title=${encodedTitle}&uploader=${encodedUploader}&duration=${encodedDuration}&views=${encodedViews}&date=${encodedUploadDate}`;
+        
+        const largeFileMessage = htmlBold("⚠️ Large file detected.") + `\n\n`
+                               + `The video file size (${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB limit) is too large for direct Telegram upload. Please use the button below to download the file directly.\n\n`
+                               + caption; 
+        
         const inlineKeyboard = [
-            [{ text: '🌐 Open Download Page', url: downloadPageUrl.toString() }], 
+            [{ text: '🔽 OPEN DOWNLOAD PAGE', url: downloadLink }],
             [{ text: 'C D H Corporation © ✅', callback_data: 'ignore_c_d_h' }] 
         ];
 
-        const titleMatch = caption.match(/Title: (.*?)(\n|$)/i);
-        const videoTitle = titleMatch ? titleMatch[1].replace(/<\/?b>/g, '').trim() : 'Video File';
-        
-        const largeFileMessage = htmlBold("⚠️ Large file detected (50MB+).") + `\n\n`
-                               + `The video is too large for direct Telegram upload. Please click the button below to download the file directly from the secure download page.\n\n`
-                               + htmlBold("Title:") + ` ${videoTitle}`; 
-
-        await this.sendMessage(
-            chatId, 
-            largeFileMessage, 
-            replyToMessageId, 
-            inlineKeyboard
-        );
+        try {
+            await this.sendMessage(
+                chatId, 
+                largeFileMessage, 
+                replyToMessageId, 
+                inlineKeyboard
+            );
+        } catch (e) {
+            console.error("Failed to send link message:", e);
+        }
     }
 
 
