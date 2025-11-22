@@ -1,11 +1,69 @@
-🚀 Facebook Video Downloader Telegram Bot (Cloudflare Worker)🔥 C D H Corporation ©<p align="center">  <a href="https://t.me/chamoddeshan">    <img src="https://img.shields.io/badge/Developer-@chamoddeshan-blue.svg?style=for-the-badge&logo=telegram" alt="Developer Telegram">  </a>  <a href="https://developers.cloudflare.com/workers/">    <img src="https://img.shields.io/badge/Platform-Cloudflare%20Workers-orange.svg?style=for-the-badge&logo=cloudflare" alt="Cloudflare Workers">  </a>  <a href="https://www.javascript.com/">    <img src="https://img.shields.io/badge/Language-JavaScript-F7DF1E.svg?style=for-the-badge&logo=javascript" alt="JavaScript">  </a></p>🌟 Project OverviewThis is a high-performance Telegram Bot running entirely on Cloudflare Workers. It allows users to seamlessly download Public Facebook Videos simply by sharing the link. The architecture is designed for speed and reliability, leveraging the power of the serverless edge and the Telegram API for efficient file handling and user engagement.✨ Key Features🔗 Facebook Video Download: Accepts any public Facebook video URL (including fb.watch and fb.me) and sends the video directly to the user in Telegram.🖼️ Rich Metadata & Caption: Videos are accompanied by an attractive caption containing complete metadata, including the Title, Uploader, Duration, View Count, and Upload Date.⏳ Real-Time Progress: Displays a simulated Progress Bar to the user while the video is being processed, identified, and uploaded, improving user experience by providing status updates.⚠️ Large File Handling: For files exceeding 50MB (configurable), the bot intelligently sends a Direct Download Link instead of attempting to upload the file to Telegram, preventing potential API or Worker timeouts.👑 Admin Panel (Bot Owner Only): Accessible via the /start command.📊 Users Count: View the total number of users who have interacted with the bot (requires Cloudflare KV).📣 Broadcast: Send a message (Text, Photo, or Video) to all registered bot users for announcements or updates.⚙️ Performance & Efficiency: Built on Cloudflare Workers' serverless architecture, ensuring low latency, high scalability, and robust performance.📁 Code StructureThe project is modularized into five distinct files for clear separation of concerns, with index.js acting as the main entry point for the Cloudflare Worker.FileResponsibilityDescriptionindex.jsEntry Point / RouterContains the fetch function of the Cloudflare Worker. It initiates all core logic and handles incoming Telegram updates (message or callback_query).handlers.jsBot Logic & API InteractionHouses the WorkerHandlers class. Includes all Telegram API methods (e.g., sendMessage, sendVideo), user database (KV) management, and the Broadcast mechanism.api.jsExternal Data FetchingContains functions (getApiMetadata, scrapeVideoLinkAndThumbnail) necessary for retrieving video metadata and scraping the final working download link from Facebook.helpers.jsFormatting & UtilitiesContains small utility functions like text formatting (htmlBold) and the logic for duration formatting (formatDuration, formatCaption).config.jsConfigurationsStores all essential constants, including BOT_TOKEN, OWNER_ID, API_URL, MAX_FILE_SIZE_BYTES, and PROGRESS_STATES arrays.🛠️ Setup and DeploymentStep 1: PrerequisitesTelegram Bot Token: Obtain your Bot Token from BotFather on Telegram.Cloudflare Account: A Cloudflare account is required, and the Wrangler CLI should be installed for deployment.Cloudflare KV (Recommended): Set up a Cloudflare KV Namespace to store user IDs for the user count and broadcast features.Step 2: Configuration UpdateOpen the config.js file and update the following placeholders with your actual credentials:// config.js
+# 🚀 Facebook Video Downloader Telegram Bot (Cloudflare Worker)
 
-const BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN_HERE'; 
-const OWNER_ID = 'YOUR_TELEGRAM_USER_ID_HERE'; // Must be a string (e.g., '123456789')
-const API_URL = "[https://fdown.isuru.eu.org/info](https://fdown.isuru.eu.org/info)"; // Do NOT change this URL
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // Default: 50MB
+**🔥 C D H Corporation ©**
 
-// ... other constants
-Step 3: DeploymentUse the Cloudflare Wrangler CLI to deploy the worker:wrangler publish
-Step 4: Webhook SetupAfter deployment, set your Telegram Webhook to point to your new Cloudflare Worker URL:[https://api.telegram.org/bot](https://api.telegram.org/bot)<YOUR_BOT_TOKEN_HERE>/setWebhook?url=<YOUR_WORKER_URL_HERE>
-⚠️ NotesEnsure that the KV Namespace binding in your wrangler.toml file matches the binding used in handlers.js (this.env.USER_DATABASE).The bot only works with Public Facebook video links. Private or restricted videos will fail.The API_URL is an external service used to efficiently fetch video metadata and should generally not be modified.
+<p align="center">
+  <a href="https://t.me/chamoddeshan">
+    <img src="https://img.shields.io/badge/Developer-@chamoddeshan-blue.svg?style=for-the-badge&logo=telegram" alt="Developer Telegram">
+  </a>
+  <a href="https://developers.cloudflare.com/workers/">
+    <img src="https://img.shields.io/badge/Platform-Cloudflare%20Workers-orange.svg?style=for-the-badge&logo=cloudflare" alt="Cloudflare Workers">
+  </a>
+  <a href="https://www.javascript.com/">
+    <img src="https://img.shields.io/badge/Language-JavaScript-F7DF1E.svg?style=for-the-badge&logo=javascript" alt="JavaScript">
+  </a>
+</p>
+
+## 🌟 ව්‍යාපෘති දළ විශ්ලේෂණය (Project Overview)
+
+මෙය **Cloudflare Workers** මත ක්‍රියාත්මක වන Telegram Bot එකක් වන අතර, පරිශීලකයින්ට **Facebook වීඩියෝ** සෘජුවම බාගත (Download) කිරීමට ඉඩ සලසයි. Bot එක ඉහළ කාර්ය සාධනයක් සහ වේගයක් සඳහා සකසා ඇති අතර, ප්‍රධාන වශයෙන් ගොනු හුවමාරුව (File Transfer) සහ පරිශීලක කළමනාකරණය (User Management) සඳහා **Telegram API** භාවිතා කරයි.
+
+---
+
+## ✨ ප්‍රධාන විශේෂාංග (Key Features)
+
+* **🔗 Facebook Video Download:** ඕනෑම පොදු (Public) Facebook වීඩියෝ සබැඳියක් (Link) බාරගෙන වීඩියෝව සෘජුවම Telegram වෙත යවයි.
+* **🖼️ Metadata සහ Caption:** වීඩියෝවේ **Title**, **Uploader**, **Duration**, **Views**, සහ **Upload Date** වැනි සම්පූර්ණ තොරතුරු සහිත ආකර්ෂණීය Caption එකක් යවයි.
+* **⏳ Progress Simulation:** වීඩියෝව හඳුනාගැනීමේදී සහ උඩුගත කිරීමේදී (Uploading) පරිශීලකයාට තත්ත්වය පෙන්වීමට **Progress Bar** එකක් පෙන්වයි.
+* **⚠️ Large File Handling:** 50MB ට වඩා විශාල ගොනු සඳහා, Bot එක **සෘජු බාගත කිරීමේ Link (Direct Download Link)** එකක් සපයන අතර, Telegram වෙත උඩුගත කිරීම වළක්වයි.
+* **👑 Admin Panel (Bot Owner පමණි):**
+    * `/start` හරහා පිවිසිය හැකි Admin මෙනුව.
+    * **📊 Users Count:** Bot භාවිතා කරන මුළු පරිශීලකයින් සංඛ්‍යාව බැලීමේ හැකියාව.
+    * **📣 Broadcast:** සියලුම පරිශීලකයින් වෙත පණිවිඩයක් (Text, Photo, Video) යැවීමේ හැකියාව.
+* **⚙️ Performance & Efficiency:** Cloudflare Workers හි serverless ගෘහ නිර්මාණ ශිල්පය (Architecture) හේතුවෙන් අඩු ප්‍රමාදයක් (Latency) සහ ඉහළ විශ්වසනීයත්වයක් සපයයි.
+
+---
+
+## 📁 කේත ව්‍යුහය (Code Structure)
+
+ව්‍යාපෘතිය පහසුවෙන් කළමනාකරණය කිරීම සඳහා ප්‍රධාන ගොනු 5කට වෙන් කර ඇත. **`index.js`** ගොනුව ප්‍රධාන ඇතුල්වීමේ ලක්ෂ්‍යය ලෙස ක්‍රියා කරන අතර අනෙකුත් සියලුම මොඩියුල (Modules) ආයාත (Import) කරයි.
+
+| ගොනුව (File) | කාර්යභාරය (Responsibility) | විස්තරය (Description) |
+| :--- | :--- | :--- |
+| **`index.js`** | **Entry Point** | Cloudflare Worker හි `fetch` ශ්‍රිතය අඩංගු ප්‍රධාන ගොනුව. සියලුම logic ආරම්භ කර, incoming updates (`message` හෝ `callback_query`) හසුරුවයි. |
+| **`handlers.js`** | **Bot Logic & API Interaction** | `WorkerHandlers` class එක අඩංගු වේ. Telegram API ඇමතුම් (sendMessage, sendVideo, editMessage), පරිශීලක දත්ත සමුදාය (User DB) හැසිරවීම, සහ Broadcast logic මෙහි ඇත. |
+| **`api.js`** | **External Data Fetching** | Facebook වීඩියෝ Metadata ලබා ගැනීමට සහ බාගත කිරීමේ සබැඳිය (Download Link) scrape කිරීමට අවශ්‍ය ශ්‍රිත (`getApiMetadata`, `scrapeVideoLinkAndThumbnail`) අඩංගු වේ. |
+| **`helpers.js`** | **Formatting** | Text Bold කිරීම (`htmlBold`) සහ වීඩියෝ කාලය (Duration) ආකෘතිකරණය (`formatDuration`, `formatCaption`) වැනි කුඩා උපකාරක ශ්‍රිත අඩංගු වේ. |
+| **`config.js`** | **Configurations** | `BOT_TOKEN`, `OWNER_ID`, `API_URL`, `MAX_FILE_SIZE_BYTES`, සහ `PROGRESS_STATES` වැනි සියලුම නියතයන් (Constants) අඩංගු වේ. |
+
+---
+
+## 🛠️ ස්ථාපනය සහ යෙදවීම (Setup & Deployment)
+
+### පියවර 1: අවශ්‍යතා (Prerequisites)
+
+1.  **Telegram Bot Token:** **BotFather** හරහා ලබාගත් ඔබගේ Bot Token එක.
+2.  **Cloudflare Account:** Cloudflare ගිණුමක් සහ Wrangler CLI ස්ථාපනය කර තිබීම.
+3.  **Durable Object/KV (Optional, නමුත් නිර්දේශිතයි):** පරිශීලක ගණනය (User Count) සහ Broadcast කිරීම සඳහා **Cloudflare KV Namespace** එකක් සකස් කිරීම.
+
+### පියවර 2: ගොනු යාවත්කාලීන කිරීම (Update Files)
+
+**`config.js`** ගොනුව විවෘත කර, ඔබගේ තොරතුරු යොදා යාවත්කාලීන කරන්න:
+
+```javascript
+// config.js
+
+const BOT_TOKEN = 'ඔබගේ_BOT_TOKEN_මෙතන_ඇතුලත්_කරන්න'; 
+const OWNER_ID = 'ඔබගේ_Telegram_USER_ID_මෙතන_ඇතුලත්_කරන්න'; 
+const API_URL = "[https://fdown.isuru.eu.org/info](https://fdown.isuru.eu.org/info)"; // මෙය වෙනස් නොකරන්න
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
