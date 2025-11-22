@@ -3,7 +3,7 @@
 import { WorkerHandlers } from './handlers';
 import { getApiMetadata, scrapeVideoLinkAndThumbnail } from './api';
 import { formatCaption, htmlBold } from './helpers';
-import { OWNER_ID, PROGRESS_STATES } from './config';
+import { PROGRESS_STATES } from './config';
 
 export default {
     
@@ -37,7 +37,7 @@ export default {
                 const chatId = message.chat.id;
                 const messageId = message.message_id;
                 const text = message.text ? message.text.trim() : null; 
-                const isOwner = OWNER_ID && chatId.toString() === OWNER_ID.toString();
+                const isOwner = env.OWNER_ID && chatId.toString() === env.OWNER_ID.toString();
                 
                 const userName = message.from.first_name || "User"; 
 
@@ -147,7 +147,7 @@ export default {
                         }
                         
                         try {
-                            const apiData = await getApiMetadata(text);
+                            const apiData = await getApiMetadata(text, env.API_URL);
                             const finalCaption = formatCaption(apiData);
                             
                             const scraperData = await scrapeVideoLinkAndThumbnail(text);
@@ -159,7 +159,9 @@ export default {
                             if (videoUrl) {
                                 handlers.progressActive = false; 
                                 
-                                if (apiData.filesize > 50 * 1024 * 1024) { 
+                                const MAX_FILE_SIZE = parseInt(env.MAX_FILE_SIZE_BYTES) || 52428800; // Default 50MB
+                                
+                                if (apiData.filesize > MAX_FILE_SIZE) { 
                                     if (progressMessageId) {
                                         await handlers.deleteMessage(chatId, progressMessageId);
                                     }
@@ -239,7 +241,8 @@ export default {
                      return new Response('OK', { status: 200 });
                  }
                  
-                 if (OWNER_ID && chatId.toString() !== OWNER_ID.toString()) {
+                 // OWNER_ID env එකෙන් ලබා ගනී
+                 if (env.OWNER_ID && chatId.toString() !== env.OWNER_ID.toString()) {
                       await handlers.answerCallbackQuery(callbackQuery.id, "❌ You cannot use this command.");
                       return new Response('OK', { status: 200 });
                  }
